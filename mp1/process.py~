@@ -1,0 +1,35 @@
+#!/usr/bin/env python
+from multiprocessing import Process, Queue
+
+NUM_PROC = 4
+
+def my_process(my_proc_id, channels):
+    for sender in xrange(NUM_PROC):
+        if channels[sender][my_proc_id]:
+            if sender == my_proc_id:
+                raise Exception("Sender and Receiver are the same!")
+            message = channels[sender][my_proc_id].pop()
+            print "From %d to %d : %s" % ( sender, my_proc_id, message )
+
+
+
+if __name__ == '__main__':
+    channels = []
+    for sender in xrange(NUM_PROC):
+        channels.append([])
+        for recvr in xrange(NUM_PROC):
+            channels[sender].append([])
+
+    proc_list = range(NUM_PROC)
+    def tick():
+        for proc_id in xrange(NUM_PROC):
+            proc_list[proc_id] = Process(target=my_process, 
+                                         args=(proc_id, channels,) )
+            proc_list[proc_id].start()
+
+    tick()
+    channels[2] [2].append("Hello")
+    tick()
+
+    for proc in proc_list:
+        proc.join()
