@@ -14,7 +14,6 @@
 #include "MPtemplate.h"
 #include "log.h"
 
-
 /*
  *
  * Routines for introducer and current time.
@@ -46,6 +45,10 @@ address getjoinaddr(void){
  *
  */
 
+void addr_to_str(address * addr, char * str) {
+	sprintf(str, "%d.%d.%d.%d:%d ", addr->addr[0], addr->addr[1], addr->addr[2], addr->addr[3], *(short *)&addr->addr[4]);
+}
+
 /* 
 Received a JOINREQ (joinrequest) message.
 */
@@ -54,43 +57,63 @@ void Process_joinreq(void *env, char *data, int size)
 
     member *thisNode = (member*) env;
     address *addedAddr = (address*) data;
-    int num_members = 0;
+    int num_members = 0; 
     messagehdr *msg;
-    
-    //Traverse the linked list of members
-    member *newMember = thisNode;
-    while(newMember->memberlist!=NULL) {
-        newMember=newMember->memberlist;
+    memlist_entry *newMember, *newMember_prev;
+    char s1[30], s2[30];
+    addr_to_str(&thisNode->addr, s1);
+
+    //printf("\n*****\n");
+    //Find the end of the memberlist
+    newMember_prev = thisNode->memberlist;
+    while(newMember_prev->next != NULL) {
+        newMember_prev = newMember_prev->next;
         num_members++;
-    }    
+    
+        addr_to_str(&newMember_prev->addr, s2);        
+        //printf("\n%s has %s member \n", s1, s2);
+    }
+
+    printf("\n%s has %d members \n", s1, num_members);
 
     //Add the new member to the membership list
-    newMember->memberlist = malloc(sizeof(member));
-    newMember->inited = 0;
-    newMember->memberlist=NULL;
+    newMember = malloc(sizeof(memlist_entry));
+    newMember->next = NULL;
     memcpy(&newMember->addr, addedAddr, sizeof(address));
+    newMember_prev->next = newMember;
+
+#ifdef DEBUGLOG
+    logNodeAdd(&thisNode->addr, addedAddr);
+#endif
 
     //Construct the JOINREP msg
-    size_t msgsize = sizeof(messagehdr) + sizeof(member)*num_members;
+    size_t msgsize = sizeof(messagehdr) 
+        + sizeof(memlist_entry)*(num_members + 1); //Include self in member list
+    //printf("\nmsgsize is %d * %d = %d\n", sizeof(member), num_members, msgsize);    
     msg=malloc(msgsize);
     msg->msgtype=JOINREP;
 
     //Fill it with members
     int i = 0;
-    member * curr = thisNode;
+    memlist_entry * curr = thisNode->memberlist;
     char * dest_ptr = (char *)(msg+1);
-    for(i=0; i< num_members-1; i++){ //Dont send the node to itself
-        memcpy(dest_ptr, &curr, sizeof(member));
-        dest_ptr += sizeof(member);
+    for(i=0; i< num_members; i++){ //Dont send the node to itself
+        memcpy(dest_ptr, curr, sizeof(memlist_entry));
+        curr = curr->next;
+        dest_ptr += sizeof(memlist_entry);
     }    
     
-    //Send the JOINREP
-
+    //Include self in member list
+    memlist_entry self;
+    self.addr = thisNode->addr;
+    self.time = thisNode->time;
+    self.hb = thisNode->hb;
+    memcpy(dest_ptr, &self, sizeof(memlist_entry));
     
 
-#ifdef DEBUGLOG
-    logNodeAdd(&thisNode->addr, addedAddr);
-#endif
+    //Send the JOINREP
+    MPp2psend(&thisNode->addr, addedAddr, (char *)msg, msgsize);
+    free(msg);
 
     return;
 }
@@ -102,15 +125,8 @@ void Process_joinrep(void *env, char *data, int size)
 {
     //member *thisNode = (member*) env;
     //address *addedAddr = (address*) data;
-#ifdef DEBUGLOG
-    
-#endif
-
+    printf("\nJOINREP with %d size\n", size);
     return;
-}
-
-void Process_membentry(void *env, char *data, int size){
-    //TODO
 }
 
 
@@ -121,7 +137,6 @@ void ( ( * MsgHandler [20] ) STDCLLBKARGS )={
 /* Message processing operations at the P2P layer. */
     Process_joinreq, 
     Process_joinrep,
-    Process_membentry
 };
 
 /* 
@@ -181,11 +196,21 @@ int init_thisnode(member *thisnode, address *joinaddr){
     thisnode->bfailed=0;
     thisnode->inited=1;
     thisnode->ingroup=0;
-    thisnode->local_time=getcurrtime();
-    thisnode->hb_count=0;
+    thisnode->time=getcurrtime();
+    thisnode->hb=0;
     thisnode->memberlist=NULL;
-    /* node is up! */
 
+    memlist_entry * start_sentinel = malloc(sizeof(memlist_entry));
+    memcpy(&start_sentinel->addr, NULLADDR, sizeof(address));
+    start_sentinel->time = 0;
+    start_sentinel->hb = 0;
+
+    memlist_entry * end_sentinel = malloc(sizeof(memlist_entry));
+    memcpy(&end_sentinel->addr, NULLADDR, sizeof(address));
+    end_sentinel->time = 0;
+    end_sentinel->hb = 0;
+
+    /* node is up! */
     return 0;
 }
 
@@ -308,6 +333,11 @@ void nodestart(member *node, char *servaddrstr, short servport){
 #endif
         exit(1);
     }
+
+	static char stdstring[30];
+	sprintf(stdstring, "%d.%d.%d.%d:%d ", node->addr.addr[0], node->addr.addr[1], node->addr.addr[2], node->addr.addr[3], *(short *)&node->addr.addr[4]);
+    printf(" %s\n", stdstring); //print new nodes addr
+
 
     if(!introduceselftogroup(node, &joinaddr)){
         finishup_thisnode(node);

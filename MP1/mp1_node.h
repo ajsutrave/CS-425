@@ -33,12 +33,19 @@ typedef struct member{
     int ingroup;                    // boolean indiciating if this member is in the group
     
     queue inmsgq;                   // queue for incoming messages
-    int local_time;
-    long hb_count;
-    struct member* memberlist;      //Linked list of memebers
+    int time;
+    long hb;
+    struct memlist_entry* memberlist;      //Linked list of memebers
         
     int bfailed;                    // boolean indicating if this member has failed
 } member;
+
+typedef struct memlist_entry {
+    struct address addr;            // my address
+    int time;
+    long hb;
+    struct memlist_entry * next;
+} memlist_entry;
 
 /* Message types */
 /* Meaning of different message types
@@ -48,7 +55,6 @@ typedef struct member{
 enum Msgtypes{
 		JOINREQ,			
 		JOINREP,
-        MEMBENTRY,
 		DUMMYLASTMSGTYPE
 };
 
