@@ -55,17 +55,18 @@ Received a JOINREQ (joinrequest) message.
 void Process_joinreq(void *env, char *data, int size)
 {
 
-    member *thisNode = (member*) env;
+    member *thisnode = (member*) env;
     address *addedAddr = (address*) data;
     int num_members = 0; 
     messagehdr *msg;
     memlist_entry *newMember, *newMember_prev;
     char s1[30], s2[30];
-    addr_to_str(&thisNode->addr, s1);
+    addr_to_str(&thisnode->addr, s1);
 
     //printf("\n*****\n");
     //Find the end of the memberlist
-    newMember_prev = thisNode->memberlist;
+
+    newMember_prev = thisnode->memberlist;
     while(newMember_prev->next != NULL) {
         newMember_prev = newMember_prev->next;
         num_members++;
@@ -83,7 +84,7 @@ void Process_joinreq(void *env, char *data, int size)
     newMember_prev->next = newMember;
 
 #ifdef DEBUGLOG
-    logNodeAdd(&thisNode->addr, addedAddr);
+    logNodeAdd(&thisnode->addr, addedAddr);
 #endif
 
     //Construct the JOINREP msg
@@ -95,7 +96,7 @@ void Process_joinreq(void *env, char *data, int size)
 
     //Fill it with members
     int i = 0;
-    memlist_entry * curr = thisNode->memberlist;
+    memlist_entry * curr = thisnode->memberlist;
     char * dest_ptr = (char *)(msg+1);
     for(i=0; i< num_members; i++){ //Dont send the node to itself
         memcpy(dest_ptr, curr, sizeof(memlist_entry));
@@ -105,14 +106,14 @@ void Process_joinreq(void *env, char *data, int size)
     
     //Include self in member list
     memlist_entry self;
-    self.addr = thisNode->addr;
-    self.time = thisNode->time;
-    self.hb = thisNode->hb;
+    self.addr = thisnode->addr;
+    self.time = thisnode->time;
+    self.hb = thisnode->hb;
     memcpy(dest_ptr, &self, sizeof(memlist_entry));
     
 
     //Send the JOINREP
-    MPp2psend(&thisNode->addr, addedAddr, (char *)msg, msgsize);
+    MPp2psend(&thisnode->addr, addedAddr, (char *)msg, msgsize);
     free(msg);
 
     return;
@@ -123,9 +124,16 @@ Received a JOINREP (joinreply) message.
 */
 void Process_joinrep(void *env, char *data, int size)
 {
-    //member *thisNode = (member*) env;
-    //address *addedAddr = (address*) data;
-    printf("\nJOINREP with %d size\n", size);
+    member *thisnode = (member*) env;
+    member* recvd_memberlist = (member * ) data;
+    int num_members = size/(sizeof(memlist_entry));
+
+    printf("\nJOINREP with %d members\n", num_members);
+    int i;
+    char [30] s; addr_to_str(
+    for (i = 0; i < num_members; i++) {
+        printf(
+            }
     return;
 }
 
@@ -198,17 +206,20 @@ int init_thisnode(member *thisnode, address *joinaddr){
     thisnode->ingroup=0;
     thisnode->time=getcurrtime();
     thisnode->hb=0;
-    thisnode->memberlist=NULL;
-
-    memlist_entry * start_sentinel = malloc(sizeof(memlist_entry));
-    memcpy(&start_sentinel->addr, NULLADDR, sizeof(address));
-    start_sentinel->time = 0;
-    start_sentinel->hb = 0;
 
     memlist_entry * end_sentinel = malloc(sizeof(memlist_entry));
     memcpy(&end_sentinel->addr, NULLADDR, sizeof(address));
     end_sentinel->time = 0;
     end_sentinel->hb = 0;
+    end_sentinel->next = NULL;
+
+    memlist_entry * start_sentinel = malloc(sizeof(memlist_entry));
+    memcpy(&start_sentinel->addr, NULLADDR, sizeof(address));
+    start_sentinel->time = 0;
+    start_sentinel->hb = 0;
+    start_sentinel->next = end_sentinel;
+    
+    thisnode->memberlist = start_sentinel;
 
     /* node is up! */
     return 0;
