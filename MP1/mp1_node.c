@@ -20,9 +20,30 @@
  *
  */
 
-char NULLADDR[] = {0,0,0,0,0,0};
-int isnulladdr( address *addr){
-    return (memcmp(addr, NULLADDR, 6)==0?1:0);
+char NULLADDR_CHAR[] = {0,0,0,0,0,0};
+address* NULLADDR = (address *) NULLADDR_CHAR;
+int isnulladdr( address *addr ){
+    return (memcmp(addr, NULLADDR, sizeof(address))==0?1:0);
+}
+
+//Compare addresses
+int addrcmp(address *addr1, address *addr2){
+    return (memcmp(addr1, addr2, 6)==0?1:0);
+}
+
+void addr_to_str(address * addr, char * str) {
+	sprintf(str, "%d.%d.%d.%d:%d ", addr->addr[0], addr->addr[1], addr->addr[2], addr->addr[3], *(short *)&addr->addr[4]);
+}
+
+
+void print_memberlist(memlist_entry * ptr) {
+    char s [30];
+    int member_cnt = 0;
+    while(ptr != NULL){
+        member_cnt++;
+        addr_to_str(&ptr->addr, s);
+        printf("Member %d: %s\n", member_cnt, s);
+    }
 }
 
 /* 
@@ -45,43 +66,40 @@ address getjoinaddr(void){
  *
  */
 
-void addr_to_str(address * addr, char * str) {
-	sprintf(str, "%d.%d.%d.%d:%d ", addr->addr[0], addr->addr[1], addr->addr[2], addr->addr[3], *(short *)&addr->addr[4]);
-}
-
 /* 
 Received a JOINREQ (joinrequest) message.
 */
 void Process_joinreq(void *env, char *data, int size)
 {
-
     member *thisnode = (member*) env;
     address *addedAddr = (address*) data;
     int num_members = 0; 
     messagehdr *msg;
     memlist_entry *newMember, *newMember_prev;
-    char s1[30], s2[30];
+    char s1[30];//, s2[30];
     addr_to_str(&thisnode->addr, s1);
 
-    //printf("\n*****\n");
-    //Find the end of the memberlist
+    printf("\n*****\n");
+
+    newMember = malloc(sizeof(memlist_entry));
+    newMember->next = NULL;
+    memcpy(&newMember->addr, addedAddr, sizeof(address));
 
     newMember_prev = thisnode->memberlist;
-    while(newMember_prev->next != NULL) {
-        newMember_prev = newMember_prev->next;
-        num_members++;
-    
-        addr_to_str(&newMember_prev->addr, s2);        
-        //printf("\n%s has %s member \n", s1, s2);
+    if (newMember_prev == NULL) {
+        thisnode->memberlist = newMember;
+    }
+    else { //Find the end of the memberlist
+        while(newMember_prev->next!=NULL) {
+            newMember_prev = newMember_prev->next;
+            num_members++;
+        }
+        //Add the new member to the membership list
+        newMember_prev->next = newMember;
     }
 
     printf("\n%s has %d members \n", s1, num_members);
 
-    //Add the new member to the membership list
-    newMember = malloc(sizeof(memlist_entry));
-    newMember->next = NULL;
-    memcpy(&newMember->addr, addedAddr, sizeof(address));
-    newMember_prev->next = newMember;
 
 #ifdef DEBUGLOG
     logNodeAdd(&thisnode->addr, addedAddr);
@@ -110,7 +128,6 @@ void Process_joinreq(void *env, char *data, int size)
     self.time = thisnode->time;
     self.hb = thisnode->hb;
     memcpy(dest_ptr, &self, sizeof(memlist_entry));
-    
 
     //Send the JOINREP
     MPp2psend(&thisnode->addr, addedAddr, (char *)msg, msgsize);
@@ -125,18 +142,30 @@ Received a JOINREP (joinreply) message.
 void Process_joinrep(void *env, char *data, int size)
 {
     member *thisnode = (member*) env;
-    member* recvd_memberlist = (member * ) data;
+    memlist_entry* recvd_memberlist = (memlist_entry * ) data;
     int num_members = size/(sizeof(memlist_entry));
-
-    printf("\nJOINREP with %d members\n", num_members);
     int i;
-    char [30] s; addr_to_str(
+
+    memlist_entry * curr;
+    memlist_entry * prev = NULL;
     for (i = 0; i < num_members; i++) {
-        printf(
-            }
+        curr = malloc(sizeof(memlist_entry));
+        memcpy(curr, &recvd_memberlist[i], sizeof(memlist_entry));
+        if (prev != NULL) prev->next = curr;
+        prev = curr;
+#ifdef DEBUGLOG
+        logNodeAdd(&thisnode->addr, &curr->addr);
+#endif
+    }
     return;
 }
 
+void Process_ping(void *env, char *data, int size){
+    //TODO
+}
+void Process_ack(void *env, char *data, int size){
+    //TODO
+}
 
 /* 
 Array of Message handlers. 
@@ -145,6 +174,8 @@ void ( ( * MsgHandler [20] ) STDCLLBKARGS )={
 /* Message processing operations at the P2P layer. */
     Process_joinreq, 
     Process_joinrep,
+    Process_ping,
+    Process_ack
 };
 
 /* 
@@ -207,19 +238,20 @@ int init_thisnode(member *thisnode, address *joinaddr){
     thisnode->time=getcurrtime();
     thisnode->hb=0;
 
-    memlist_entry * end_sentinel = malloc(sizeof(memlist_entry));
-    memcpy(&end_sentinel->addr, NULLADDR, sizeof(address));
-    end_sentinel->time = 0;
-    end_sentinel->hb = 0;
-    end_sentinel->next = NULL;
+    thisnode->memberlist = NULL;
+    /* memlist_entry * end_sentinel = malloc(sizeof(memlist_entry)); */
+    /* memcpy(&end_sentinel->addr, NULLADDR, sizeof(address)); */
+    /* end_sentinel->time = 0; */
+    /* end_sentinel->hb = 0; */
+    /* end_sentinel->next = NULL; */
 
-    memlist_entry * start_sentinel = malloc(sizeof(memlist_entry));
-    memcpy(&start_sentinel->addr, NULLADDR, sizeof(address));
-    start_sentinel->time = 0;
-    start_sentinel->hb = 0;
-    start_sentinel->next = end_sentinel;
+    /* memlist_entry * start_sentinel = malloc(sizeof(memlist_entry)); */
+    /* memcpy(&start_sentinel->addr, NULLADDR, sizeof(address)); */
+    /* start_sentinel->time = 0; */
+    /* start_sentinel->hb = 0; */
+    /* start_sentinel->next = end_sentinel; */
     
-    thisnode->memberlist = start_sentinel;
+    /* thisnode->memberlist = start_sentinel; */
 
     /* node is up! */
     return 0;

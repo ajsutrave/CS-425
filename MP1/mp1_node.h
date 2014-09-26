@@ -55,6 +55,8 @@ typedef struct memlist_entry {
 enum Msgtypes{
 		JOINREQ,			
 		JOINREP,
+        PING,
+        ACK,
 		DUMMYLASTMSGTYPE
 };
 
