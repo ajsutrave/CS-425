@@ -43,6 +43,7 @@ void print_memberlist(memlist_entry * ptr) {
         member_cnt++;
         addr_to_str(&ptr->addr, s);
         printf("Member %d: %s\n", member_cnt, s);
+        ptr = ptr->next;
     }
 }
 
@@ -71,23 +72,24 @@ Received a JOINREQ (joinrequest) message.
 */
 void Process_joinreq(void *env, char *data, int size)
 {
-    member *thisnode = (member*) env;
+    member *thisNode = (member*) env;
     address *addedAddr = (address*) data;
     int num_members = 0; 
     messagehdr *msg;
     memlist_entry *newMember, *newMember_prev;
     char s1[30];//, s2[30];
-    addr_to_str(&thisnode->addr, s1);
+    addr_to_str(&thisNode->addr, s1);
 
-    printf("\n*****\n");
-
+    //Create a new member list entry
     newMember = malloc(sizeof(memlist_entry));
     newMember->next = NULL;
     memcpy(&newMember->addr, addedAddr, sizeof(address));
 
-    newMember_prev = thisnode->memberlist;
+    //Check if this is the first entry
+    newMember_prev = thisNode->memberlist;
     if (newMember_prev == NULL) {
-        thisnode->memberlist = newMember;
+        //If so it is the head of the LL
+        thisNode->memberlist = newMember;
     }
     else { //Find the end of the memberlist
         while(newMember_prev->next!=NULL) {
@@ -98,11 +100,11 @@ void Process_joinreq(void *env, char *data, int size)
         newMember_prev->next = newMember;
     }
 
-    printf("\n%s has %d members \n", s1, num_members);
-
-
+    //Update the log and member info
+    //printf("\n%s has %d members \n", s1, thisNode->num_members);
+    thisNode->num_members++;
 #ifdef DEBUGLOG
-    logNodeAdd(&thisnode->addr, addedAddr);
+    logNodeAdd(&thisNode->addr, addedAddr);
 #endif
 
     //Construct the JOINREP msg
@@ -114,7 +116,7 @@ void Process_joinreq(void *env, char *data, int size)
 
     //Fill it with members
     int i = 0;
-    memlist_entry * curr = thisnode->memberlist;
+    memlist_entry * curr = thisNode->memberlist;
     char * dest_ptr = (char *)(msg+1);
     for(i=0; i< num_members; i++){ //Dont send the node to itself
         memcpy(dest_ptr, curr, sizeof(memlist_entry));
@@ -122,18 +124,16 @@ void Process_joinreq(void *env, char *data, int size)
         dest_ptr += sizeof(memlist_entry);
     }    
     
-    //Include self in member list
+    //Include self in JOINREP
     memlist_entry self;
-    self.addr = thisnode->addr;
-    self.time = thisnode->time;
-    self.hb = thisnode->hb;
+    self.addr = thisNode->addr;
+    self.time = thisNode->time;
+    self.hb = thisNode->hb;
     memcpy(dest_ptr, &self, sizeof(memlist_entry));
 
     //Send the JOINREP
-    MPp2psend(&thisnode->addr, addedAddr, (char *)msg, msgsize);
+    MPp2psend(&thisNode->addr, addedAddr, (char *)msg, msgsize);
     free(msg);
-
-    return;
 }
 
 /* 
@@ -141,7 +141,7 @@ Received a JOINREP (joinreply) message.
 */
 void Process_joinrep(void *env, char *data, int size)
 {
-    member *thisnode = (member*) env;
+    member *thisNode = (member*) env;
     memlist_entry* recvd_memberlist = (memlist_entry * ) data;
     int num_members = size/(sizeof(memlist_entry));
     int i;
@@ -149,22 +149,60 @@ void Process_joinrep(void *env, char *data, int size)
     memlist_entry * curr;
     memlist_entry * prev = NULL;
     for (i = 0; i < num_members; i++) {
+
+        //Create a copy of the entry
         curr = malloc(sizeof(memlist_entry));
         memcpy(curr, &recvd_memberlist[i], sizeof(memlist_entry));
-        if (prev != NULL) prev->next = curr;
+        
+        //Link list
+        if (prev != NULL) { 
+            prev->next = curr;
+        }
+        //Handle edge case of head
+        else {
+            thisNode->memberlist = curr;
+        }
         prev = curr;
 #ifdef DEBUGLOG
-        logNodeAdd(&thisnode->addr, &curr->addr);
+        logNodeAdd(&thisNode->addr, &curr->addr);
 #endif
     }
-    return;
+    curr->next = NULL; //Terminate the memberlist
+    
+    //Update the node
+    thisNode->ingroup = 1;
+    thisNode->num_members = num_members;
+    char s [30]; addr_to_str(&thisNode->addr, s); 
+
+    /* printf("\n%s has %d members \n", s, thisNode->num_members); */
+    /* print_memberlist(thisNode->memberlist); */
 }
 
 void Process_ping(void *env, char *data, int size){
-    //TODO
+    member *thisNode = (member*) env;
+    address *sender = (address*) data;
+    
+    char sender_str [30]; addr_to_str(sender, sender_str); 
+    char recvr_str [30]; addr_to_str(&thisNode->addr, recvr_str); 
+    
+    printf("%s : PING from %s\n", recvr_str, sender_str);
+
+/* #ifdef DEBUGLOG */
+/*     char sender_str [30]; addr_to_str(&sender, sender_str);  */
+/*     char s [30] sprintf(s, "PING from %s", sender_str); */
+/*     LOG(&thisNode->addr, s); */
+/* #endif */
+
 }
+
+
 void Process_ack(void *env, char *data, int size){
-    //TODO
+/*     member *thisNode = (member*) env; */
+/*     address *sender = (address*) data; */
+
+/* #ifdef DEBUGLOG */
+/*     LOG(&thisNode->addr, "ACK"); */
+/* #endif */
 }
 
 /* 
@@ -220,25 +258,26 @@ int recv_callback(void *env, char *data, int size){
 /* 
 Find out who I am, and start up. 
 */
-int init_thisnode(member *thisnode, address *joinaddr){
+int init_thisNode(member *thisNode, address *joinaddr){
     
-    if(MPinit(&thisnode->addr, PORTNUM, (char *)joinaddr)== NULL){ /* Calls ENInit */
+    if(MPinit(&thisNode->addr, PORTNUM, (char *)joinaddr)== NULL){ /* Calls ENInit */
 #ifdef DEBUGLOG
-        LOG(&thisnode->addr, "MPInit failed");
+        LOG(&thisNode->addr, "MPInit failed");
 #endif
         exit(1);
     }
 #ifdef DEBUGLOG
-    else LOG(&thisnode->addr, "MPInit succeeded. Hello.");
+    else LOG(&thisNode->addr, "MPInit succeeded. Hello.");
 #endif
 
-    thisnode->bfailed=0;
-    thisnode->inited=1;
-    thisnode->ingroup=0;
-    thisnode->time=getcurrtime();
-    thisnode->hb=0;
+    thisNode->bfailed=0;
+    thisNode->inited=1;
+    thisNode->ingroup=0;
+    thisNode->time=getcurrtime();
+    thisNode->hb=0;
+    thisNode->num_members = 0;
 
-    thisnode->memberlist = NULL;
+    thisNode->memberlist = NULL;
     /* memlist_entry * end_sentinel = malloc(sizeof(memlist_entry)); */
     /* memcpy(&end_sentinel->addr, NULLADDR, sizeof(address)); */
     /* end_sentinel->time = 0; */
@@ -251,7 +290,7 @@ int init_thisnode(member *thisnode, address *joinaddr){
     /* start_sentinel->hb = 0; */
     /* start_sentinel->next = end_sentinel; */
     
-    /* thisnode->memberlist = start_sentinel; */
+    /* thisNode->memberlist = start_sentinel; */
 
     /* node is up! */
     return 0;
@@ -337,11 +376,27 @@ Executed periodically for each member.
 Performs necessary periodic operations. 
 Called by nodeloop(). 
 */
-void nodeloopops(member *node){
-
-	/* <your code goes in here> */
+void nodeloopops(member *node) {
+    int random_num = rand() % node->num_members;
+    char sender_addr [30]; addr_to_str(&node->addr, sender_addr); 
+    int i;
+    memlist_entry * recvr_node = node->memberlist;
+    messagehdr *msg;
     
-    return;
+    //Pick a random node to ping
+    for (i=0; i<random_num; i++)
+        recvr_node  = recvr_node->next;
+    char recvr_addr [30]; addr_to_str(&recvr_node->addr, recvr_addr); 
+    
+    //create PING message: format of data is {struct address myaddr} */
+    size_t msgsize = sizeof(messagehdr) + sizeof(address);
+    msg=malloc(msgsize);
+    msg->msgtype=PING;
+    memcpy((char *)(msg+1), &node->addr, sizeof(address));
+
+    //send PING message 
+    MPp2psend(&node->addr, &recvr_node->addr, (char *)msg, msgsize);
+    free(msg);
 }
 
 /* 
@@ -369,18 +424,16 @@ void nodestart(member *node, char *servaddrstr, short servport){
     address joinaddr=getjoinaddr();
 
     /* Self booting routines */
-    if(init_thisnode(node, &joinaddr) == -1){
+    if(init_thisNode(node, &joinaddr) == -1){
 
 #ifdef DEBUGLOG
-        LOG(&node->addr, "init_thisnode failed. Exit.");
+        LOG(&node->addr, "init_thisNode failed. Exit.");
 #endif
         exit(1);
     }
 
-	static char stdstring[30];
-	sprintf(stdstring, "%d.%d.%d.%d:%d ", node->addr.addr[0], node->addr.addr[1], node->addr.addr[2], node->addr.addr[3], *(short *)&node->addr.addr[4]);
-    printf(" %s\n", stdstring); //print new nodes addr
-
+    char my_addr [30]; addr_to_str(&node->addr, my_addr); 
+    printf(" %s\n", my_addr); //print new nodes addr
 
     if(!introduceselftogroup(node, &joinaddr)){
         finishup_thisnode(node);

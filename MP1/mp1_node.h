@@ -36,6 +36,7 @@ typedef struct member{
     int time;
     long hb;
     struct memlist_entry* memberlist;      //Linked list of memebers
+    int num_members;
         
     int bfailed;                    // boolean indicating if this member has failed
 } member;
