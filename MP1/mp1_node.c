@@ -41,7 +41,7 @@ void print_memberlist(memlist_entry * ptr) {
     while(ptr != NULL){
         member_cnt++;
         addr_to_str(ptr->addr, s);
-        printf("Member %d: %s\n", member_cnt, s);
+        printf("Member %d: %s t(%d) hb(%ld)\n", member_cnt, s, ptr->time, ptr->heartbeat);
         ptr = ptr->next;
     }
 }
@@ -133,27 +133,28 @@ void Process_joinreq(void *env, char *data, int size)
     //Include self in JOINREP
     memlist_entry self;
     self.addr = thisNode->addr;
-    self.time = thisNode->time;
+    self.time = getcurrtime();
     self.heartbeat = thisNode->heartbeat;
     memcpy(dest_ptr, &self, sizeof(memlist_entry));
 
     //Send the JOINREP
     MPp2psend(&thisNode->addr, addedAddr, (char *)msg, msgsize);
     free(msg);
+    thisNode->heartbeat++;
 }
 
 void serialize_memberlist(memlist_entry * memlist_arr, member * node) {
     int i = 0;
     memlist_entry * curr = node->memberlist;
     char addr_str [30]; addr_to_str(node->addr, addr_str);
-    /* printf("Serialized Memberlist for %s: ", addr_str); */
-    for(i=0; i < node->num_members; i++){ //Dont send the node to itself
+    printf("Serialized Memberlist for %s: ", addr_str);
+    for(i=0; i < node->num_members; i++){
         memcpy(&memlist_arr[i], curr, sizeof(memlist_entry));
         char member_str [30]; addr_to_str(curr->addr, member_str);
-        /* printf("%s ", member_str); */
+        printf("%s ", member_str);
         curr = curr->next;
     }    
-    /* printf("\n"); */
+    printf("\n");
 }
 
 /* 
@@ -229,8 +230,13 @@ void Process_gossip(void *env, char *data, int size){
             curr = curr->next;
         }
         
+        
                     
-        if(!in_membership) {
+        if(in_membership) {
+            //Update member information
+            
+        }
+        else {
             char member_str [30]; addr_to_str(recvd_memberlist[i].addr, member_str);
             printf("%s : Received GOSSIP about new member %s\n", recvr_str, member_str);
 #ifdef DEBUGLOG
@@ -261,7 +267,7 @@ env is member *node, data is 'messagehdr'.
 */
 int recv_callback(void *env, char *data, int size){
 
-    member *node = (member *) env;
+    member *thisNode = (member *) env;
     messagehdr *msghdr = (messagehdr *)data;
     //address sender = msghdr->sender;
     char *pktdata = (char *)(msghdr+1);
@@ -277,12 +283,13 @@ int recv_callback(void *env, char *data, int size){
     LOG(&((member *)env)->addr, "Received msg type %d with %d B payload", msghdr->msgtype, size - sizeof(messagehdr));
 #endif
 
-    if((node->ingroup && msghdr->msgtype >= 0 && msghdr->msgtype <= DUMMYLASTMSGTYPE)
-        || (!node->ingroup && msghdr->msgtype==JOINREP))            
+    if((thisNode->ingroup && msghdr->msgtype >= 0 && msghdr->msgtype <= DUMMYLASTMSGTYPE)
+        || (!thisNode->ingroup && msghdr->msgtype==JOINREP))            
             /* if not yet in group, accept only JOINREPs */
         MsgHandler[msghdr->msgtype](env, pktdata, size-sizeof(messagehdr));
     /* else ignore (garbled message) */
     free(data);
+    thisNode->heartbeat++;
 
     return 0;
 
@@ -429,6 +436,12 @@ void nodeloopops(member *thisNode) {
     memlist_entry * msgbody = (memlist_entry*) (msg+1);
     serialize_memberlist(msgbody, thisNode);
 
+    //Include self at end of list
+    memlist_entry * self = msgbody + thisNode->num_members;
+    self->addr = thisNode->addr;
+    self->time = getcurrtime();
+    self->heartbeat = thisNode->heartbeat;
+
     /* printf("Sending GOSSIP msg with following members : "); */
     /* for (i=0; i < thisNode->num_members; i++){ */
     /*     char member_addr [30]; addr_to_str(msgbody[i].addr, member_addr); */
@@ -439,6 +452,8 @@ void nodeloopops(member *thisNode) {
     //send GOSSIP message 
     MPp2psend(&thisNode->addr, &recvr_node->addr, (char *)msg, msgsize);
     free(msg);
+
+    thisNode->heartbeat++;
 }
 
 /* 
