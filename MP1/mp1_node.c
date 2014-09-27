@@ -31,8 +31,8 @@ int addrcmp(address *addr1, address *addr2){
     return (memcmp(addr1, addr2, 6)==0?1:0);
 }
 
-void addr_to_str(address * addr, char * str) {
-	sprintf(str, "%d.%d.%d.%d:%d ", addr->addr[0], addr->addr[1], addr->addr[2], addr->addr[3], *(short *)&addr->addr[4]);
+void addr_to_str(address addr, char * str) {
+	sprintf(str, "%d.%d.%d.%d:%d ", addr.addr[0], addr.addr[1], addr.addr[2], addr.addr[3], *(short *)&addr.addr[4]);
 }
 
 
@@ -41,7 +41,7 @@ void print_memberlist(memlist_entry * ptr) {
     int member_cnt = 0;
     while(ptr != NULL){
         member_cnt++;
-        addr_to_str(&ptr->addr, s);
+        addr_to_str(ptr->addr, s);
         printf("Member %d: %s\n", member_cnt, s);
         ptr = ptr->next;
     }
@@ -78,7 +78,7 @@ void Process_joinreq(void *env, char *data, int size)
     messagehdr *msg;
     memlist_entry *newMember, *newMember_prev;
     char s1[30];//, s2[30];
-    addr_to_str(&thisNode->addr, s1);
+    addr_to_str(thisNode->addr, s1);
 
     //Create a new member list entry
     newMember = malloc(sizeof(memlist_entry));
@@ -128,12 +128,24 @@ void Process_joinreq(void *env, char *data, int size)
     memlist_entry self;
     self.addr = thisNode->addr;
     self.time = thisNode->time;
-    self.hb = thisNode->hb;
+    self.heartbeat = thisNode->heartbeat;
     memcpy(dest_ptr, &self, sizeof(memlist_entry));
 
     //Send the JOINREP
     MPp2psend(&thisNode->addr, addedAddr, (char *)msg, msgsize);
     free(msg);
+}
+
+void serialize_memberlist(memlist_entry * memlist_arr, member * node) {
+    int i = 0;
+    memlist_entry * curr = node->memberlist;
+    for(i=0; i < node->num_members; i++){ //Dont send the node to itself
+        memcpy(&memlist_arr[i], curr, sizeof(memlist_entry));
+        char member_str [30]; addr_to_str(curr->addr, member_str);
+        printf("%s ", member_str);
+        curr = curr->next;
+    }    
+    printf("\n");
 }
 
 /* 
@@ -172,20 +184,31 @@ void Process_joinrep(void *env, char *data, int size)
     //Update the node
     thisNode->ingroup = 1;
     thisNode->num_members = num_members;
-    char s [30]; addr_to_str(&thisNode->addr, s); 
-
+    
+    /* char s [30]; addr_to_str(thisNode->addr, s);  */
     /* printf("\n%s has %d members \n", s, thisNode->num_members); */
     /* print_memberlist(thisNode->memberlist); */
 }
 
-void Process_ping(void *env, char *data, int size){
+void Process_gossip(void *env, char *data, int size){
     member *thisNode = (member*) env;
     address *sender = (address*) data;
+    memlist_entry * recvd_memberlist = (memlist_entry*) (data + sizeof(address));
+    int recvd_num_members = (size - sizeof(address))/sizeof(memlist_entry);
+    char sender_str [30]; addr_to_str(*sender, sender_str); 
+    char recvr_str [30]; addr_to_str(thisNode->addr, recvr_str); 
+    int i;//, j;
     
-    char sender_str [30]; addr_to_str(sender, sender_str); 
-    char recvr_str [30]; addr_to_str(&thisNode->addr, recvr_str); 
-    
-    printf("%s : PING from %s\n", recvr_str, sender_str);
+    printf("%s : GOSSIP from %s about %d members\n", recvr_str, sender_str, recvd_num_members);
+    for (i = 0; i < recvd_num_members; i++) {
+        //int in_membership = 0;
+        //for(j = 0; j < node->num_members; j++) {
+            //if (addrcmp(
+        //}
+        char member_str [30]; addr_to_str(recvd_memberlist->addr, member_str); 
+        printf("%s ", member_str);
+    }
+    printf("\n");
 
 /* #ifdef DEBUGLOG */
 /*     char sender_str [30]; addr_to_str(&sender, sender_str);  */
@@ -196,15 +219,6 @@ void Process_ping(void *env, char *data, int size){
 }
 
 
-void Process_ack(void *env, char *data, int size){
-/*     member *thisNode = (member*) env; */
-/*     address *sender = (address*) data; */
-
-/* #ifdef DEBUGLOG */
-/*     LOG(&thisNode->addr, "ACK"); */
-/* #endif */
-}
-
 /* 
 Array of Message handlers. 
 */
@@ -212,8 +226,7 @@ void ( ( * MsgHandler [20] ) STDCLLBKARGS )={
 /* Message processing operations at the P2P layer. */
     Process_joinreq, 
     Process_joinrep,
-    Process_ping,
-    Process_ack
+    Process_gossip,
 };
 
 /* 
@@ -274,23 +287,10 @@ int init_thisNode(member *thisNode, address *joinaddr){
     thisNode->inited=1;
     thisNode->ingroup=0;
     thisNode->time=getcurrtime();
-    thisNode->hb=0;
+    thisNode->heartbeat=0;
     thisNode->num_members = 0;
 
     thisNode->memberlist = NULL;
-    /* memlist_entry * end_sentinel = malloc(sizeof(memlist_entry)); */
-    /* memcpy(&end_sentinel->addr, NULLADDR, sizeof(address)); */
-    /* end_sentinel->time = 0; */
-    /* end_sentinel->hb = 0; */
-    /* end_sentinel->next = NULL; */
-
-    /* memlist_entry * start_sentinel = malloc(sizeof(memlist_entry)); */
-    /* memcpy(&start_sentinel->addr, NULLADDR, sizeof(address)); */
-    /* start_sentinel->time = 0; */
-    /* start_sentinel->hb = 0; */
-    /* start_sentinel->next = end_sentinel; */
-    
-    /* thisNode->memberlist = start_sentinel; */
 
     /* node is up! */
     return 0;
@@ -376,26 +376,36 @@ Executed periodically for each member.
 Performs necessary periodic operations. 
 Called by nodeloop(). 
 */
-void nodeloopops(member *node) {
-    int random_num = rand() % node->num_members;
-    char sender_addr [30]; addr_to_str(&node->addr, sender_addr); 
+void nodeloopops(member *thisNode) {
+    int random_num = rand() % thisNode->num_members;
+    char sender_addr [30]; addr_to_str(thisNode->addr, sender_addr); 
     int i;
-    memlist_entry * recvr_node = node->memberlist;
+    memlist_entry * recvr_node = thisNode->memberlist;
     messagehdr *msg;
+
+    /* char s [30]; addr_to_str(thisNode->addr, s);  */
+    /* printf("\n%s has %d members \n", s, thisNode->num_members); */
+    /* print_memberlist(thisNode->memberlist); */
     
     //Pick a random node to ping
     for (i=0; i<random_num; i++)
         recvr_node  = recvr_node->next;
-    char recvr_addr [30]; addr_to_str(&recvr_node->addr, recvr_addr); 
+    char recvr_addr [30]; addr_to_str(recvr_node->addr, recvr_addr); 
     
-    //create PING message: format of data is {struct address myaddr} */
-    size_t msgsize = sizeof(messagehdr) + sizeof(address);
+    //create GOSSIP message
+    size_t msgsize = sizeof(messagehdr) 
+        + sizeof(memlist_entry)*(thisNode->num_members + 1); //Include self in member list
     msg=malloc(msgsize);
-    msg->msgtype=PING;
-    memcpy((char *)(msg+1), &node->addr, sizeof(address));
+    msg->msgtype=GOSSIP;
 
-    //send PING message 
-    MPp2psend(&node->addr, &recvr_node->addr, (char *)msg, msgsize);
+    //Fill the message with the current node's memberlist 
+    memlist_entry * msgbody = (memlist_entry*) (msg+1);
+    serialize_memberlist(msgbody, thisNode);
+
+    
+
+    //send GOSSIP message 
+    MPp2psend(&thisNode->addr, &recvr_node->addr, (char *)msg, msgsize);
     free(msg);
 }
 
@@ -432,7 +442,7 @@ void nodestart(member *node, char *servaddrstr, short servport){
         exit(1);
     }
 
-    char my_addr [30]; addr_to_str(&node->addr, my_addr); 
+    char my_addr [30]; addr_to_str(node->addr, my_addr); 
     printf(" %s\n", my_addr); //print new nodes addr
 
     if(!introduceselftogroup(node, &joinaddr)){

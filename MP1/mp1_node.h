@@ -34,7 +34,7 @@ typedef struct member{
     
     queue inmsgq;                   // queue for incoming messages
     int time;
-    long hb;
+    long heartbeat;
     struct memlist_entry* memberlist;      //Linked list of memebers
     int num_members;
         
@@ -44,7 +44,7 @@ typedef struct member{
 typedef struct memlist_entry {
     struct address addr;            // my address
     int time;
-    long hb;
+    long heartbeat;
     struct memlist_entry * next;
 } memlist_entry;
 
@@ -53,11 +53,11 @@ typedef struct memlist_entry {
   JOINREQ - request to join the group
   JOINREP - replyto JOINREQ
 */
+
 enum Msgtypes{
 		JOINREQ,			
 		JOINREP,
-        PING,
-        ACK,
+        GOSSIP,
 		DUMMYLASTMSGTYPE
 };
 
@@ -72,7 +72,7 @@ typedef struct messagehdr{
 /* Message processing routines. */
 STDCLLBKRET Process_joinreq STDCLLBKARGS;
 STDCLLBKRET Process_joinrep STDCLLBKARGS;
-STDCLLBKRET Process_membentry STDCLLBKARGS;
+STDCLLBKRET Process_gossip STDCLLBKARGS;
 
 /*
 int recv_callback(void *env, char *data, int size);
