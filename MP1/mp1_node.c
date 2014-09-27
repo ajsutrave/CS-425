@@ -35,14 +35,24 @@ void addr_to_str(address addr, char * str) {
 	sprintf(str, "%d.%d.%d.%d:%d ", addr.addr[0], addr.addr[1], addr.addr[2], addr.addr[3], *(short *)&addr.addr[4]);
 }
 
-void print_memberlist(memlist_entry * ptr) {
-    char s [30];
+void print_memberlist(member * thisNode) {
     int member_cnt = 0;
-    while(ptr != NULL){
+    memlist_entry * curr = thisNode->memberlist;
+
+    char addr_str  [30]; addr_to_str(thisNode->addr, addr_str);
+    char s [30]; sprintf(s, "has %d members", thisNode->num_members);
+#ifdef DEBUGLOG
+    LOG(&(thisNode->addr), s);
+#endif
+    
+    while(curr != NULL){
         member_cnt++;
-        addr_to_str(ptr->addr, s);
-        printf("Member %d: %s t(%d) hb(%ld)\n", member_cnt, s, ptr->time, ptr->heartbeat);
-        ptr = ptr->next;
+        addr_to_str(curr->addr, addr_str);
+        sprintf(s, "Member %d: %s t(%d) hb(%ld)", member_cnt, addr_str, curr->time, curr->heartbeat);
+#ifdef DEBUGLOG
+        LOG(&(thisNode->addr), s);
+#endif
+        curr = curr->next;
     }
 }
 
@@ -90,6 +100,8 @@ void Process_joinreq(void *env, char *data, int size)
     newMember = malloc(sizeof(memlist_entry));
     newMember->next = NULL;
     memcpy(&newMember->addr, addedAddr, sizeof(address));
+    newMember->time = 0;
+    newMember->heartbeat = 0;
 
     //Check if this is the first entry
     newMember_prev = thisNode->memberlist;
@@ -118,7 +130,8 @@ void Process_joinreq(void *env, char *data, int size)
         + sizeof(memlist_entry)*(num_members + 1); //Include self in member list
     //printf("\nmsgsize is %d * %d = %d\n", sizeof(member), num_members, msgsize);    
     msg=malloc(msgsize);
-    msg->msgtype=JOINREP;
+    msg->msgtype = JOINREP;
+    msg->sender = thisNode->addr;
 
     //Fill it with members
     int i = 0;
@@ -147,14 +160,14 @@ void serialize_memberlist(memlist_entry * memlist_arr, member * node) {
     int i = 0;
     memlist_entry * curr = node->memberlist;
     char addr_str [30]; addr_to_str(node->addr, addr_str);
-    printf("Serialized Memberlist for %s: ", addr_str);
+    /* printf("Serialized Memberlist for %s: ", addr_str); */
     for(i=0; i < node->num_members; i++){
         memcpy(&memlist_arr[i], curr, sizeof(memlist_entry));
         char member_str [30]; addr_to_str(curr->addr, member_str);
-        printf("%s ", member_str);
+        /* printf("%s ", member_str); */
         curr = curr->next;
     }    
-    printf("\n");
+    /* printf("\n"); */
 }
 
 /* 
@@ -231,10 +244,14 @@ void Process_gossip(void *env, char *data, int size){
         }
         
         
-                    
-        if(in_membership) {
-            //Update member information
-            
+        if(in_membership)
+        {
+            if (curr->heartbeat < recvd_memberlist[i].heartbeat ||
+                curr->time < recvd_memberlist[i].time ) 
+            {
+                curr->heartbeat = recvd_memberlist[i].heartbeat;
+                curr->time = recvd_memberlist[i].time;
+            }
         }
         else {
             char member_str [30]; addr_to_str(recvd_memberlist[i].addr, member_str);
@@ -269,7 +286,8 @@ int recv_callback(void *env, char *data, int size){
 
     member *thisNode = (member *) env;
     messagehdr *msghdr = (messagehdr *)data;
-    //address sender = msghdr->sender;
+    address sender = msghdr->sender;
+    char sender_str [30]; addr_to_str(sender, sender_str);
     char *pktdata = (char *)(msghdr+1);
 
     if(size < sizeof(messagehdr)){
@@ -280,7 +298,9 @@ int recv_callback(void *env, char *data, int size){
     }
 
 #ifdef DEBUGLOG
-    LOG(&((member *)env)->addr, "Received msg type %d with %d B payload", msghdr->msgtype, size - sizeof(messagehdr));
+    LOG(&(thisNode->addr), 
+        "Received msg type%d (%d B) from %s", 
+        msghdr->msgtype, size - sizeof(messagehdr), sender_str);
 #endif
 
     if((thisNode->ingroup && msghdr->msgtype >= 0 && msghdr->msgtype <= DUMMYLASTMSGTYPE)
@@ -350,36 +370,35 @@ int finishup_thisnode(member *node){
 /* 
 Introduce self to group. 
 */
-int introduceselftogroup(member *node, address *joinaddr){
+int introduceselftogroup(member *thisNode, address *joinaddr){
     
     messagehdr *msg;
 #ifdef DEBUGLOG
     static char s[1024];
 #endif
 
-    if(memcmp(&node->addr, joinaddr, 4*sizeof(char)) == 0){
+    if(memcmp(&thisNode->addr, joinaddr, 4*sizeof(char)) == 0){
         /* I am the group booter (first process to join the group). Boot up the group. */
 #ifdef DEBUGLOG
-        LOG(&node->addr, "Starting up group...");
+        LOG(&thisNode->addr, "Starting up group...");
 #endif
 
-        node->ingroup = 1;
+        thisNode->ingroup = 1;
     }
     else{
+        /* create JOINREQ message: format of data is {struct address myaddr} */
         size_t msgsize = sizeof(messagehdr) + sizeof(address);
         msg=malloc(msgsize);
-
-    /* create JOINREQ message: format of data is {struct address myaddr} */
         msg->msgtype=JOINREQ;
-        memcpy((char *)(msg+1), &node->addr, sizeof(address));
+        msg->sender = thisNode->addr;
+        memcpy((char *)(msg+1), &thisNode->addr, sizeof(address));
 
 #ifdef DEBUGLOG
-        sprintf(s, "Trying to join...");
-        LOG(&node->addr, s);
+        LOG(&thisNode->addr, "Trying to join...");
 #endif
 
-    /* send JOINREQ message to introducer member. */
-        MPp2psend(&node->addr, joinaddr, (char *)msg, msgsize);
+        /* send JOINREQ message to introducer member. */
+        MPp2psend(&thisNode->addr, joinaddr, (char *)msg, msgsize);
         
         free(msg);
     }
@@ -416,9 +435,7 @@ void nodeloopops(member *thisNode) {
     memlist_entry * recvr_node = thisNode->memberlist;
     messagehdr *msg;
 
-    char s [30]; addr_to_str(thisNode->addr, s);
-    printf("\n%s has %d members \n", s, thisNode->num_members);
-    print_memberlist(thisNode->memberlist);
+    //print_memberlist(thisNode);
     
     //Pick a random node to ping
     for (i=0; i<random_num; i++)
@@ -427,7 +444,7 @@ void nodeloopops(member *thisNode) {
     
     //create GOSSIP message
     size_t msgsize = sizeof(messagehdr) 
-        + sizeof(memlist_entry)*(thisNode->num_members + 1); //Include self in member list
+        + sizeof(memlist_entry)*(thisNode->num_members + 1); 
     msg=malloc(msgsize);
     msg->msgtype=GOSSIP;
     msg->sender = thisNode->addr;
