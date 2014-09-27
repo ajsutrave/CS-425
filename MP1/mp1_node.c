@@ -195,8 +195,8 @@ void Process_gossip(void *env, char *data, int size){
     address *sender = (address*) data;
     memlist_entry * recvd_memberlist = (memlist_entry*) (data + sizeof(address));
     int recvd_num_members = (size - sizeof(address))/sizeof(memlist_entry);
-    char sender_str [30]; addr_to_str(*sender, sender_str); 
-    char recvr_str [30]; addr_to_str(thisNode->addr, recvr_str); 
+    char sender_str [30] = {0}; addr_to_str(*sender, sender_str); 
+    char recvr_str [30] = {0}; addr_to_str(thisNode->addr, recvr_str); 
     int i;//, j;
     
     printf("%s : GOSSIP from %s about %d members\n", recvr_str, sender_str, recvd_num_members);
@@ -205,7 +205,7 @@ void Process_gossip(void *env, char *data, int size){
         //for(j = 0; j < node->num_members; j++) {
             //if (addrcmp(
         //}
-        char member_str [30]; addr_to_str(recvd_memberlist->addr, member_str); 
+        char member_str [30]; addr_to_str(recvd_memberlist[i].addr, member_str); 
         printf("%s ", member_str);
     }
     printf("\n");
@@ -402,7 +402,12 @@ void nodeloopops(member *thisNode) {
     memlist_entry * msgbody = (memlist_entry*) (msg+1);
     serialize_memberlist(msgbody, thisNode);
 
-    
+    /* printf("Sending GOSSIP msg with following members : "); */
+    /* for (i=0; i < thisNode->num_members; i++){ */
+    /*     char member_addr [30]; addr_to_str(msgbody[i].addr, member_addr);  */
+    /*     printf("%s ", member_addr); */
+    /* } */
+    /* printf("\n"); */
 
     //send GOSSIP message 
     MPp2psend(&thisNode->addr, &recvr_node->addr, (char *)msg, msgsize);
@@ -443,7 +448,7 @@ void nodestart(member *node, char *servaddrstr, short servport){
     }
 
     char my_addr [30]; addr_to_str(node->addr, my_addr); 
-    printf(" %s\n", my_addr); //print new nodes addr
+    //printf(" %s\n", my_addr); //print new nodes addr
 
     if(!introduceselftogroup(node, &joinaddr)){
         finishup_thisnode(node);
