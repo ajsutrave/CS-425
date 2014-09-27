@@ -64,6 +64,7 @@ enum Msgtypes{
 /* Generic message template. */
 typedef struct messagehdr{ 	
 	enum Msgtypes msgtype;
+    struct address sender;
 } messagehdr;
 
 

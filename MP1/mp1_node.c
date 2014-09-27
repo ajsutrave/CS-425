@@ -27,14 +27,13 @@ int isnulladdr( address *addr ){
 }
 
 //Compare addresses
-int addrcmp(address *addr1, address *addr2){
-    return (memcmp(addr1, addr2, 6)==0?1:0);
+int addrcmp(address addr1, address addr2){
+    return (memcmp(&addr1, &addr2, 6)==0?1:0);
 }
 
 void addr_to_str(address addr, char * str) {
 	sprintf(str, "%d.%d.%d.%d:%d ", addr.addr[0], addr.addr[1], addr.addr[2], addr.addr[3], *(short *)&addr.addr[4]);
 }
-
 
 void print_memberlist(memlist_entry * ptr) {
     char s [30];
@@ -45,6 +44,13 @@ void print_memberlist(memlist_entry * ptr) {
         printf("Member %d: %s\n", member_cnt, s);
         ptr = ptr->next;
     }
+}
+
+void add_entry_to_memberlist(member * thisNode, memlist_entry new_member) {
+    memlist_entry * new_entry = malloc(sizeof(memlist_entry));
+    memcpy(new_entry, &new_member, sizeof(memlist_entry));
+    new_entry->next = thisNode->memberlist;
+    thisNode->memberlist = new_entry;
 }
 
 /* 
@@ -139,13 +145,15 @@ void Process_joinreq(void *env, char *data, int size)
 void serialize_memberlist(memlist_entry * memlist_arr, member * node) {
     int i = 0;
     memlist_entry * curr = node->memberlist;
+    char addr_str [30]; addr_to_str(node->addr, addr_str);
+    /* printf("Serialized Memberlist for %s: ", addr_str); */
     for(i=0; i < node->num_members; i++){ //Dont send the node to itself
         memcpy(&memlist_arr[i], curr, sizeof(memlist_entry));
         char member_str [30]; addr_to_str(curr->addr, member_str);
-        printf("%s ", member_str);
+        /* printf("%s ", member_str); */
         curr = curr->next;
     }    
-    printf("\n");
+    /* printf("\n"); */
 }
 
 /* 
@@ -192,30 +200,47 @@ void Process_joinrep(void *env, char *data, int size)
 
 void Process_gossip(void *env, char *data, int size){
     member *thisNode = (member*) env;
-    address *sender = (address*) data;
-    memlist_entry * recvd_memberlist = (memlist_entry*) (data + sizeof(address));
+    memlist_entry * recvd_memberlist = (memlist_entry*) data;
     int recvd_num_members = (size - sizeof(address))/sizeof(memlist_entry);
-    char sender_str [30] = {0}; addr_to_str(*sender, sender_str); 
     char recvr_str [30] = {0}; addr_to_str(thisNode->addr, recvr_str); 
     int i;//, j;
     
-    printf("%s : GOSSIP from %s about %d members\n", recvr_str, sender_str, recvd_num_members);
+    /* printf("%s : GOSSIP about %d members\n", recvr_str, recvd_num_members); */
     for (i = 0; i < recvd_num_members; i++) {
-        //int in_membership = 0;
-        //for(j = 0; j < node->num_members; j++) {
-            //if (addrcmp(
-        //}
-        char member_str [30]; addr_to_str(recvd_memberlist[i].addr, member_str); 
-        printf("%s ", member_str);
+        int in_membership = 0;
+        memlist_entry * curr = thisNode->memberlist;
+
+        //Ignore gossip about self
+        if ( addrcmp(thisNode->addr, recvd_memberlist[i].addr) )
+            continue;
+
+        //Check for through the member list
+        while(curr!=NULL) {
+            /* char member_str [30]; addr_to_str(recvd_memberlist[i].addr, member_str); */
+            /* printf("%s == %s? %d\n",  */
+            /*        recvr_str,  */
+            /*        member_str,  */
+            /*        addrcmp(thisNode->addr, recvd_memberlist[i].addr)); */
+
+             if ( addrcmp(curr->addr,recvd_memberlist[i].addr) ) {
+                in_membership = 1;
+                break;
+            }
+            curr = curr->next;
+        }
+        
+                    
+        if(!in_membership) {
+            char member_str [30]; addr_to_str(recvd_memberlist[i].addr, member_str);
+            printf("%s : Received GOSSIP about new member %s\n", recvr_str, member_str);
+#ifdef DEBUGLOG
+            logNodeAdd(&thisNode->addr, &recvd_memberlist[i].addr);
+#endif
+            add_entry_to_memberlist(thisNode, recvd_memberlist[i]);
+            thisNode->num_members++;
+        }
     }
-    printf("\n");
-
-/* #ifdef DEBUGLOG */
-/*     char sender_str [30]; addr_to_str(&sender, sender_str);  */
-/*     char s [30] sprintf(s, "PING from %s", sender_str); */
-/*     LOG(&thisNode->addr, s); */
-/* #endif */
-
+    /* printf("\n"); */
 }
 
 
@@ -238,6 +263,7 @@ int recv_callback(void *env, char *data, int size){
 
     member *node = (member *) env;
     messagehdr *msghdr = (messagehdr *)data;
+    //address sender = msghdr->sender;
     char *pktdata = (char *)(msghdr+1);
 
     if(size < sizeof(messagehdr)){
@@ -383,9 +409,9 @@ void nodeloopops(member *thisNode) {
     memlist_entry * recvr_node = thisNode->memberlist;
     messagehdr *msg;
 
-    /* char s [30]; addr_to_str(thisNode->addr, s);  */
-    /* printf("\n%s has %d members \n", s, thisNode->num_members); */
-    /* print_memberlist(thisNode->memberlist); */
+    char s [30]; addr_to_str(thisNode->addr, s);
+    printf("\n%s has %d members \n", s, thisNode->num_members);
+    print_memberlist(thisNode->memberlist);
     
     //Pick a random node to ping
     for (i=0; i<random_num; i++)
@@ -397,6 +423,7 @@ void nodeloopops(member *thisNode) {
         + sizeof(memlist_entry)*(thisNode->num_members + 1); //Include self in member list
     msg=malloc(msgsize);
     msg->msgtype=GOSSIP;
+    msg->sender = thisNode->addr;
 
     //Fill the message with the current node's memberlist 
     memlist_entry * msgbody = (memlist_entry*) (msg+1);
@@ -404,7 +431,7 @@ void nodeloopops(member *thisNode) {
 
     /* printf("Sending GOSSIP msg with following members : "); */
     /* for (i=0; i < thisNode->num_members; i++){ */
-    /*     char member_addr [30]; addr_to_str(msgbody[i].addr, member_addr);  */
+    /*     char member_addr [30]; addr_to_str(msgbody[i].addr, member_addr); */
     /*     printf("%s ", member_addr); */
     /* } */
     /* printf("\n"); */
@@ -448,7 +475,7 @@ void nodestart(member *node, char *servaddrstr, short servport){
     }
 
     char my_addr [30]; addr_to_str(node->addr, my_addr); 
-    //printf(" %s\n", my_addr); //print new nodes addr
+    printf(" %s\n", my_addr); //print new nodes addr
 
     if(!introduceselftogroup(node, &joinaddr)){
         finishup_thisnode(node);
