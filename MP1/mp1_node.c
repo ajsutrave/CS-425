@@ -56,6 +56,9 @@ void print_memberlist(member * thisNode) {
     }
 }
 
+void print_memlist_entry(memlist_entry mem) {
+}
+
 void add_entry_to_memberlist(member * thisNode, memlist_entry new_member) {
     memlist_entry * new_entry = malloc(sizeof(memlist_entry));
     memcpy(new_entry, &new_member, sizeof(memlist_entry));
@@ -219,10 +222,12 @@ void Process_gossip(void *env, char *data, int size){
     char recvr_str [30] = {0}; addr_to_str(thisNode->addr, recvr_str); 
     int i;//, j;
     
-    /* printf("%s : GOSSIP about %d members\n", recvr_str, recvd_num_members); */
+    //printf("%s : GOSSIP about %d members\n", recvr_str, recvd_num_members);
     for (i = 0; i < recvd_num_members; i++) {
         int in_membership = 0;
         memlist_entry * curr = thisNode->memberlist;
+        char member_str [30]; addr_to_str(recvd_memberlist[i].addr, member_str);
+        
 
         //Ignore gossip about self
         if ( addrcmp(thisNode->addr, recvd_memberlist[i].addr) )
@@ -230,10 +235,10 @@ void Process_gossip(void *env, char *data, int size){
 
         //Check for through the member list
         while(curr!=NULL) {
-            /* char member_str [30]; addr_to_str(recvd_memberlist[i].addr, member_str); */
-            /* printf("%s == %s? %d\n",  */
-            /*        recvr_str,  */
-            /*        member_str,  */
+            char member_str [30]; addr_to_str(recvd_memberlist[i].addr, member_str);
+            /* printf("%s == %s? %d\n", */
+            /*        recvr_str, */
+            /*        member_str, */
             /*        addrcmp(thisNode->addr, recvd_memberlist[i].addr)); */
 
              if ( addrcmp(curr->addr,recvd_memberlist[i].addr) ) {
@@ -243,19 +248,20 @@ void Process_gossip(void *env, char *data, int size){
             curr = curr->next;
         }
         
-        
         if(in_membership)
         {
             if (curr->heartbeat < recvd_memberlist[i].heartbeat ||
-                curr->time < recvd_memberlist[i].time ) 
+                curr->time < recvd_memberlist[i].time )
             {
                 curr->heartbeat = recvd_memberlist[i].heartbeat;
                 curr->time = recvd_memberlist[i].time;
             }
+            printf("%s : Received GOSSIP about %s t(%d) hb(%ld)\n", recvr_str, member_str, recvd_memberlist[i].time, recvd_memberlist[i].heartbeat);
         }
         else {
-            char member_str [30]; addr_to_str(recvd_memberlist[i].addr, member_str);
-            printf("%s : Received GOSSIP about new member %s\n", recvr_str, member_str);
+            //char member_str [30]; addr_to_str(recvd_memberlist[i].addr, member_str);
+            //printf("%s : Received GOSSIP about new member %s\n", recvr_str, member_str);
+            printf("%s : Received GOSSIP about new member %s t(%d) hb(%ld)\n", recvr_str, member_str, recvd_memberlist[i].time, recvd_memberlist[i].heartbeat);
 #ifdef DEBUGLOG
             logNodeAdd(&thisNode->addr, &recvd_memberlist[i].addr);
 #endif
@@ -374,7 +380,7 @@ int introduceselftogroup(member *thisNode, address *joinaddr){
     
     messagehdr *msg;
 #ifdef DEBUGLOG
-    static char s[1024];
+    //static char s[1024];
 #endif
 
     if(memcmp(&thisNode->addr, joinaddr, 4*sizeof(char)) == 0){
@@ -435,7 +441,9 @@ void nodeloopops(member *thisNode) {
     memlist_entry * recvr_node = thisNode->memberlist;
     messagehdr *msg;
 
-    //print_memberlist(thisNode);
+    thisNode->heartbeat++;
+
+    print_memberlist(thisNode);
     
     //Pick a random node to ping
     for (i=0; i<random_num; i++)
@@ -454,11 +462,12 @@ void nodeloopops(member *thisNode) {
     serialize_memberlist(msgbody, thisNode);
 
     //Include self at end of list
-    memlist_entry * self = msgbody + thisNode->num_members;
+    memlist_entry * self = msgbody + thisNode->num_members - 1;
     self->addr = thisNode->addr;
-    self->time = getcurrtime();
-    self->heartbeat = thisNode->heartbeat;
-
+    self->time = 1000;//getcurrtime();
+    self->heartbeat = 43;//thisNode->heartbeat;
+    
+    
     /* printf("Sending GOSSIP msg with following members : "); */
     /* for (i=0; i < thisNode->num_members; i++){ */
     /*     char member_addr [30]; addr_to_str(msgbody[i].addr, member_addr); */
@@ -469,8 +478,6 @@ void nodeloopops(member *thisNode) {
     //send GOSSIP message 
     MPp2psend(&thisNode->addr, &recvr_node->addr, (char *)msg, msgsize);
     free(msg);
-
-    thisNode->heartbeat++;
 }
 
 /* 
