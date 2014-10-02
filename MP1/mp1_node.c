@@ -14,8 +14,12 @@
 #include "MPtemplate.h"
 #include "log.h"
 
-#define T_FAIL 30
-#define T_CLEANUP 50
+#define T_CLEANUP 80
+#define T_FAIL 50
+#define FAILED 1
+#define REMOVED 2 
+#define NORMAL 0
+
 
 /*
  *
@@ -174,7 +178,7 @@ void serialize_memberlist(memlist_entry * memlist_arr, member * node) {
     empty_member.failed = -1;
 
     for(i=0; i < node->num_members; i++){
-        if (!curr->failed ) {
+        if (curr->failed==NORMAL) {
             memcpy(&memlist_arr[i], curr, sizeof(memlist_entry));
         }
         else {
@@ -197,30 +201,27 @@ void check_failures(member * thisNode)
     memlist_entry * prev = NULL;
     while (curr != NULL) {
         int delta_t = getcurrtime() - curr->time;
-        /* if ( delta_t > T_CLEANUP ) { */
-        /*     memlist_entry * del = curr;  */
-        /*     curr = curr->next; */
-        /*     if (prev==NULL) //Edge Case head */
-        /*         thisNode->memberlist = curr; */
-        /*     else  */
-        /*         prev->next = curr; */
-        /*     thisNode->num_members--; */
-        /*     free(del); */
-        /* } */
-        if (delta_t > T_FAIL && curr->failed==0) {
-            curr->failed = 0;                
-            prev = curr;
-            curr = curr->next;
+        
+        if ( (delta_t > T_CLEANUP) && (curr->failed!=REMOVED) && (curr->failed==FAILED) ) {
 #ifdef DEBUGLOG
-            logNodeRemove(&thisNode->addr, &prev->addr);
+            logNodeRemove(&thisNode->addr, &curr->addr);
 #endif
-
+            curr->failed = REMOVED;
+        }
+        else if ( (delta_t > T_FAIL) && (curr->failed!=FAILED)) {
+            char addr_str [30]; addr_to_str(curr->addr, addr_str);
+#ifdef DEBUGLOG
+            //LOG(&(thisNode->addr), "%s failed", addr_str);
+#endif
+            curr->failed = FAILED;
         }
         else {
-            curr->failed = 0;
-            prev = curr;
-            curr = curr->next;
+            curr->failed = NORMAL;
         }
+
+
+        prev = curr;
+        curr = curr->next;
     }
 }
 
@@ -285,7 +286,7 @@ void Process_gossip(void *env, char *data, int size){
             continue;
 
         //Ignore gossip about nulls
-        else if (isnulladdr(&(thisNode->addr)))
+        else if (isnulladdr(&(recvd_memberlist[i].addr)))
             continue;
 
         //Check for through the member list
