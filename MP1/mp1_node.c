@@ -14,6 +14,9 @@
 #include "MPtemplate.h"
 #include "log.h"
 
+#define T_FAIL 30
+#define T_CLEANUP 50
+
 /*
  *
  * Routines for introducer and current time.
@@ -22,6 +25,7 @@
 
 char NULLADDR_CHAR[] = {0,0,0,0,0,0};
 address* NULLADDR = (address *) NULLADDR_CHAR;
+
 int isnulladdr( address *addr ){
     return (memcmp(addr, NULLADDR, sizeof(address))==0?1:0);
 }
@@ -48,7 +52,7 @@ void print_memberlist(member * thisNode) {
     while(curr != NULL){
         member_cnt++;
         addr_to_str(curr->addr, addr_str);
-        sprintf(s, "Member %d: %s t(%d) hb(%ld)", member_cnt, addr_str, curr->time, curr->heartbeat);
+        sprintf(s, "Member %d: %s t(%d) hb(%ld) delta_t(%d)", member_cnt, addr_str, curr->time, curr->heartbeat, getcurrtime()-curr->time);
 #ifdef DEBUGLOG
         LOG(&(thisNode->addr), s);
 #endif
@@ -162,15 +166,62 @@ void Process_joinreq(void *env, char *data, int size)
 void serialize_memberlist(memlist_entry * memlist_arr, member * node) {
     int i = 0;
     memlist_entry * curr = node->memberlist;
-    char addr_str [30]; addr_to_str(node->addr, addr_str);
-    /* printf("Serialized Memberlist for %s: ", addr_str); */
+
+    memlist_entry empty_member;
+    memcpy(&(empty_member.addr), NULLADDR, sizeof(address));
+    empty_member.time = -1;
+    empty_member.heartbeat = -1;
+    empty_member.failed = -1;
+
     for(i=0; i < node->num_members; i++){
-        memcpy(&memlist_arr[i], curr, sizeof(memlist_entry));
-        char member_str [30]; addr_to_str(curr->addr, member_str);
-        /* printf("%s ", member_str); */
+        if (!curr->failed ) {
+            memcpy(&memlist_arr[i], curr, sizeof(memlist_entry));
+        }
+        else {
+            char addr_str [30]; addr_to_str(curr->addr, addr_str);
+#ifdef DEBUGLOG
+            LOG(&(node->addr), "%s suspected. Replacing with empty", addr_str);
+#endif
+
+            memcpy(&memlist_arr[i], &empty_member, sizeof(memlist_entry));
+        }
+        
         curr = curr->next;
     }    
     /* printf("\n"); */
+}
+
+void check_failures(member * thisNode)
+{
+    memlist_entry * curr = thisNode->memberlist;
+    memlist_entry * prev = NULL;
+    while (curr != NULL) {
+        int delta_t = getcurrtime() - curr->time;
+        /* if ( delta_t > T_CLEANUP ) { */
+        /*     memlist_entry * del = curr;  */
+        /*     curr = curr->next; */
+        /*     if (prev==NULL) //Edge Case head */
+        /*         thisNode->memberlist = curr; */
+        /*     else  */
+        /*         prev->next = curr; */
+        /*     thisNode->num_members--; */
+        /*     free(del); */
+        /* } */
+        if (delta_t > T_FAIL && curr->failed==0) {
+            curr->failed = 0;                
+            prev = curr;
+            curr = curr->next;
+#ifdef DEBUGLOG
+            logNodeRemove(&thisNode->addr, &prev->addr);
+#endif
+
+        }
+        else {
+            curr->failed = 0;
+            prev = curr;
+            curr = curr->next;
+        }
+    }
 }
 
 /* 
@@ -233,6 +284,10 @@ void Process_gossip(void *env, char *data, int size){
         if ( addrcmp(thisNode->addr, recvd_memberlist[i].addr) )
             continue;
 
+        //Ignore gossip about nulls
+        else if (isnulladdr(&(thisNode->addr)))
+            continue;
+
         //Check for through the member list
         while(curr!=NULL) {
             char member_str [30]; addr_to_str(recvd_memberlist[i].addr, member_str);
@@ -244,24 +299,25 @@ void Process_gossip(void *env, char *data, int size){
              if ( addrcmp(curr->addr,recvd_memberlist[i].addr) ) {
                 in_membership = 1;
                 break;
-            }
+             }
             curr = curr->next;
         }
         
         if(in_membership)
         {
-            if (curr->heartbeat < recvd_memberlist[i].heartbeat ||
-                curr->time < recvd_memberlist[i].time )
+            if (curr->heartbeat < recvd_memberlist[i].heartbeat)
+                //curr->time < recvd_memberlist[i].time )
             {
                 curr->heartbeat = recvd_memberlist[i].heartbeat;
                 curr->time = recvd_memberlist[i].time;
             }
-            printf("%s : Received GOSSIP about %s t(%d) hb(%ld)\n", recvr_str, member_str, recvd_memberlist[i].time, recvd_memberlist[i].heartbeat);
+            
+            //printf("%s : Received GOSSIP about %s t(%d) hb(%ld)\n", recvr_str, member_str, recvd_memberlist[i].time, recvd_memberlist[i].heartbeat);
         }
         else {
             //char member_str [30]; addr_to_str(recvd_memberlist[i].addr, member_str);
             //printf("%s : Received GOSSIP about new member %s\n", recvr_str, member_str);
-            printf("%s : Received GOSSIP about new member %s t(%d) hb(%ld)\n", recvr_str, member_str, recvd_memberlist[i].time, recvd_memberlist[i].heartbeat);
+            //printf("%s : Received GOSSIP about new member %s t(%d) hb(%ld)\n", recvr_str, member_str, recvd_memberlist[i].time, recvd_memberlist[i].heartbeat);
 #ifdef DEBUGLOG
             logNodeAdd(&thisNode->addr, &recvd_memberlist[i].addr);
 #endif
@@ -435,16 +491,16 @@ Performs necessary periodic operations.
 Called by nodeloop(). 
 */
 void nodeloopops(member *thisNode) {
+
+    thisNode->heartbeat++;
+    check_failures(thisNode);
+
     int random_num = rand() % thisNode->num_members;
     char sender_addr [30]; addr_to_str(thisNode->addr, sender_addr); 
     int i;
     memlist_entry * recvr_node = thisNode->memberlist;
     messagehdr *msg;
 
-    thisNode->heartbeat++;
-
-    print_memberlist(thisNode);
-    
     //Pick a random node to ping
     for (i=0; i<random_num; i++)
         recvr_node  = recvr_node->next;
@@ -460,13 +516,13 @@ void nodeloopops(member *thisNode) {
     //Fill the message with the current node's memberlist 
     memlist_entry * msgbody = (memlist_entry*) (msg+1);
     serialize_memberlist(msgbody, thisNode);
-
+    print_memberlist(thisNode);
+    
     //Include self at end of list
     memlist_entry * self = msgbody + thisNode->num_members - 1;
     self->addr = thisNode->addr;
-    self->time = 1000;//getcurrtime();
-    self->heartbeat = 43;//thisNode->heartbeat;
-    
+    self->time = getcurrtime();
+    self->heartbeat = thisNode->heartbeat;
     
     /* printf("Sending GOSSIP msg with following members : "); */
     /* for (i=0; i < thisNode->num_members; i++){ */

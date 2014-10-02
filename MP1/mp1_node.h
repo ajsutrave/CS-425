@@ -45,6 +45,7 @@ typedef struct memlist_entry {
     struct address addr;            // my address
     int time;
     long heartbeat;
+    int failed;
     struct memlist_entry * next;
 } memlist_entry;
 
