@@ -1,0 +1,23 @@
+K 25
+svn:wc:ra_dav:version-url
+V 51
+/svn/fa14-cs425/!svn/ver/615/sutrave1/MP1/testcases
+END
+multifailure.conf
+K 25
+svn:wc:ra_dav:version-url
+V 69
+/svn/fa14-cs425/!svn/ver/615/sutrave1/MP1/testcases/multifailure.conf
+END
+msgdropsinglefailure.conf
+K 25
+svn:wc:ra_dav:version-url
+V 77
+/svn/fa14-cs425/!svn/ver/615/sutrave1/MP1/testcases/msgdropsinglefailure.conf
+END
+singlefailure.conf
+K 25
+svn:wc:ra_dav:version-url
+V 70
+/svn/fa14-cs425/!svn/ver/615/sutrave1/MP1/testcases/singlefailure.conf
+END
