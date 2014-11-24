@@ -36,7 +36,7 @@ MP2Node::~MP2Node() {
  */
 void MP2Node::updateRing() {
 	/*
-	 * Implement this. Parts of it are already implemented
+	 * TODO. Parts of it are already implemented
 	 */
 	vector<Node> curMemList;
 	bool change = false;
@@ -109,7 +109,7 @@ size_t MP2Node::hashFunction(string key) {
  */
 void MP2Node::clientCreate(string key, string value) {
 	/*
-	 * Implement this
+	 * TODO
 	 */
 }
 
@@ -124,7 +124,7 @@ void MP2Node::clientCreate(string key, string value) {
  */
 void MP2Node::clientRead(string key){
 	/*
-	 * Implement this
+	 * TODO
 	 */
 }
 
@@ -139,7 +139,7 @@ void MP2Node::clientRead(string key){
  */
 void MP2Node::clientUpdate(string key, string value){
 	/*
-	 * Implement this
+	 * TODO
 	 */
 }
 
@@ -154,7 +154,7 @@ void MP2Node::clientUpdate(string key, string value){
  */
 void MP2Node::clientDelete(string key){
 	/*
-	 * Implement this
+	 * TODO
 	 */
 }
 
@@ -167,10 +167,12 @@ void MP2Node::clientDelete(string key){
  * 			   	2) Return true or false based on success or failure
  */
 bool MP2Node::createKeyValue(string key, string value, ReplicaType replica) {
+
 	/*
-	 * Implement this
+	 * TODO
 	 */
 	// Insert key, value, replicaType into the hash table
+    return false;
 }
 
 /**
@@ -183,9 +185,10 @@ bool MP2Node::createKeyValue(string key, string value, ReplicaType replica) {
  */
 string MP2Node::readKey(string key) {
 	/*
-	 * Implement this
+	 * TODO
 	 */
 	// Read key from local hash table and return value
+    return "";
 }
 
 /**
@@ -198,9 +201,10 @@ string MP2Node::readKey(string key) {
  */
 bool MP2Node::updateKeyValue(string key, string value, ReplicaType replica) {
 	/*
-	 * Implement this
+	 * TODO
 	 */
 	// Update key in local hash table and return true or false
+    return false;
 }
 
 /**
@@ -213,9 +217,10 @@ bool MP2Node::updateKeyValue(string key, string value, ReplicaType replica) {
  */
 bool MP2Node::deletekey(string key) {
 	/*
-	 * Implement this
+	 * TODO
 	 */
 	// Delete the key from the local hash table
+    return false;
 }
 
 /**
@@ -228,7 +233,7 @@ bool MP2Node::deletekey(string key) {
  */
 void MP2Node::checkMessages() {
 	/*
-	 * Implement this. Parts of it are already implemented
+	 * TODO. Parts of it are already implemented
 	 */
 	char * data;
 	int size;
@@ -278,7 +283,7 @@ vector<Node> MP2Node::findNodes(string key) {
 		}
 		else {
 			// go through the ring until pos <= node
-			for (int i=1; i<ring.size(); i++){
+			for (unsigned int i=1; i<ring.size(); i++){
 				Node addr = ring.at(i);
 				if (pos <= addr.getHashCode()) {
 					addr_vec.emplace_back(addr);
@@ -326,6 +331,7 @@ int MP2Node::enqueueWrapper(void *env, char *buff, int size) {
  */
 void MP2Node::stabilizationProtocol() {
 	/*
-	 * Implement this
+	 * TODO
 	 */
+    g_transID = 0;
 }
