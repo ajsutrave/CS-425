@@ -51,12 +51,40 @@ void MP2Node::updateRing() {
 	 */
 	// Sort the list based on the hashCode
 	sort(curMemList.begin(), curMemList.end());
+    
+    //Compare the received membership list with the ring
+    if (curMemList.size()!=ring.size()) {
+        change = true;
+        ring = curMemList;
+    }
+    else {
+        vector<Node>::iterator CML_it, ring_end, ring_it;
+        for(CML_it=curMemList.begin(), ring_it=ring.begin(), ring_end=ring.end(); 
+            ring_it != ring_end; ++ring_it, ++CML_it) {
 
+            if( (*CML_it).getHashCode() != (*ring_it).getHashCode() ) {
+                change = true;
+                break;
+            }
+        }
+    }        
 
 	/*
 	 * Step 3: Run the stabilization protocol IF REQUIRED
 	 */
 	// Run stabilization protocol if the hash table size is greater than zero and if there has been a changed in the ring
+    if (!ht->isEmpty() && change)
+        stabilizationProtocol();
+
+#ifdef DEBUGLOG
+    if (change) {
+        stringstream ring_ss; 
+        ring_ss << "Ring :";
+        for(unsigned i = 0; i < ring.size(); i++)
+            ring_ss << ring[i].nodeAddress.getAddress() << ", ";
+        log->LOG(&memberNode->addr, ring_ss.str().c_str());
+    }
+#endif
 }
 
 /**
@@ -111,6 +139,27 @@ void MP2Node::clientCreate(string key, string value) {
 	/*
 	 * TODO
 	 */
+    g_transID++;
+
+    //Add the new KV to this node
+    ht->create(key, value);
+
+    //Create the replica messages
+    Message create_msg1(g_transID, memberNode->addr, CREATE, key, value, PRIMARY);
+    Message create_msg2(g_transID, memberNode->addr, CREATE, key, value, SECONDARY);
+    Message create_msg3(g_transID, memberNode->addr, CREATE, key, value, TERTIARY);
+
+    //Send the replica messages
+    size_t primary_pos = hashFunction(key);
+    size_t secondary_pos = (primary_pos+1) % RING_SIZE;
+    size_t tertiary_pos = (primary_pos+2) % RING_SIZE;
+
+    emulNet->ENsend(&memberNode->addr, &ring[primary_pos].nodeAddress, 
+                    create_msg1.toString());
+    emulNet->ENsend(&memberNode->addr, &ring[secondary_pos].nodeAddress, 
+                    create_msg2.toString());
+    emulNet->ENsend(&memberNode->addr, &ring[tertiary_pos].nodeAddress, 
+                    create_msg3.toString());
 }
 
 /**
@@ -141,6 +190,7 @@ void MP2Node::clientUpdate(string key, string value){
 	/*
 	 * TODO
 	 */
+    g_transID++;
 }
 
 /**
@@ -172,7 +222,12 @@ bool MP2Node::createKeyValue(string key, string value, ReplicaType replica) {
 	 * TODO
 	 */
 	// Insert key, value, replicaType into the hash table
-    return false;
+    g_transID++;
+    bool success = ht->create(key, pair(value, replica));
+    if (success)
+        log->logCreateSuccess(&memberNode->addr, false, g_transID, key, 
+                              pair(value, replica));
+    return success;
 }
 
 /**
@@ -188,6 +243,8 @@ string MP2Node::readKey(string key) {
 	 * TODO
 	 */
 	// Read key from local hash table and return value
+    g_transID++;
+
     return "";
 }
 
@@ -204,6 +261,8 @@ bool MP2Node::updateKeyValue(string key, string value, ReplicaType replica) {
 	 * TODO
 	 */
 	// Update key in local hash table and return true or false
+    g_transID++;
+
     return false;
 }
 
@@ -220,6 +279,8 @@ bool MP2Node::deletekey(string key) {
 	 * TODO
 	 */
 	// Delete the key from the local hash table
+    g_transID++;
+
     return false;
 }
 
@@ -251,12 +312,19 @@ void MP2Node::checkMessages() {
 		size = memberNode->mp2q.front().size;
 		memberNode->mp2q.pop();
 
-		string message(data, data + size);
-
+		string msg_str(data, data + size);
+        Message msg(msg_str);
 		/*
 		 * Handle the message types here
 		 */
-
+        switch(msg.type) {
+        case CREATE: createKeyValue(msg.key, msg.value, msg.replica); break;
+        case UPDATE: break;
+        case READ: break;
+        case DELETE: break;
+        case REPLY: break;
+        case READREPLY: break;
+        }
 	}
 
 	/*
@@ -333,5 +401,17 @@ void MP2Node::stabilizationProtocol() {
 	/*
 	 * TODO
 	 */
-    g_transID = 0;
 }
+
+string MP2Node::pair(string value, ReplicaType replica) {
+    stringstream ss;
+    switch(replica) {
+    case PRIMARY: ss << "PRIMARY"; break;
+    case SECONDARY: ss << "SECONDARY"; break;
+    case TERTIARY: ss << "TERTIARY"; break;
+    default: ss << "BAD";
+    }
+    ss << "::" << value;
+    return ss.str();
+}
+

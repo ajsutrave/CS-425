@@ -18,6 +18,8 @@
 #include "Params.h"
 #include "Message.h"
 #include "Queue.h"
+#include <sstream>
+#include <utility>
 
 /**
  * CLASS NAME: MP2Node
@@ -89,6 +91,10 @@ public:
 	void stabilizationProtocol();
 
 	~MP2Node();
+
+    string pair(string value, ReplicaType replica);
+    std::pair<string, ReplicaType> unpair(string value_replica);
+    
 };
 
 #endif /* MP2NODE_H_ */
