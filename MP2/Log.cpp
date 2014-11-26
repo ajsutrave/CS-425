@@ -77,12 +77,12 @@ void Log::LOG(Address *addr, const char * str, ...) {
 		fprintf(fp2, "\n %s", stdstring);
 		fprintf(fp2, "[%d] ", par->getcurrtime());
 
-		fprintf(fp2, buffer);
+		fputs(buffer, fp2);
 	}
 	else{
 		fprintf(fp, "\n %s", stdstring);
 		fprintf(fp, "[%d] ", par->getcurrtime());
-		fprintf(fp, buffer);
+		fputs(buffer, fp);
 
 	}
 

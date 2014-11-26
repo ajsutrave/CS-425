@@ -1,0 +1,111 @@
+Index: Application.cpp
+===================================================================
+--- Application.cpp	(revision 753)
++++ Application.cpp	(working copy)
+@@ -451,7 +451,7 @@
+ 	 */
+ 	cout<<endl<<"Deleting "<<testKVPairs.size()/2 <<" valid keys.... ... .. . ."<<endl;
+ 	map<string, string>::iterator it = testKVPairs.begin();
+-	for ( int i = 0; i < testKVPairs.size()/2; i++ ) {
++	for ( unsigned int i = 0; i < testKVPairs.size()/2; i++ ) {
+ 		it++;
+ 
+ 		// Step 1.a. Find a node that is alive
+@@ -615,7 +615,7 @@
+ 				exit(1);
+ 			}
+ 			if ( count == 2 ) {
+-				for ( int i = 0; i < nodesToFail.size(); i++ ) {
++				for ( unsigned int i = 0; i < nodesToFail.size(); i++ ) {
+ 					// Fail a node
+ 					log->LOG(&mp2[nodesToFail.at(i)]->getMemberNode()->addr, "Node failed at time=%d", par->getcurrtime());
+ 					mp2[nodesToFail.at(i)]->getMemberNode()->bFailed = true;
+@@ -858,7 +858,7 @@
+ 				cout<<endl<<"Not enough replicas to fail two nodes. Exiting test case !! "<<endl;
+ 			}
+ 			if ( count == 2 ) {
+-				for ( int i = 0; i < nodesToFail.size(); i++ ) {
++				for ( unsigned int i = 0; i < nodesToFail.size(); i++ ) {
+ 					// Fail a node
+ 					log->LOG(&mp2[nodesToFail.at(i)]->getMemberNode()->addr, "Node failed at time=%d", par->getcurrtime());
+ 					mp2[nodesToFail.at(i)]->getMemberNode()->bFailed = true;
+Index: Log.cpp
+===================================================================
+--- Log.cpp	(revision 753)
++++ Log.cpp	(working copy)
+@@ -77,12 +77,12 @@
+ 		fprintf(fp2, "\n %s", stdstring);
+ 		fprintf(fp2, "[%d] ", par->getcurrtime());
+ 
+-		fprintf(fp2, buffer);
++		fputs(buffer, fp2);
+ 	}
+ 	else{
+ 		fprintf(fp, "\n %s", stdstring);
+ 		fprintf(fp, "[%d] ", par->getcurrtime());
+-		fprintf(fp, buffer);
++		fputs(buffer, fp);
+ 
+ 	}
+ 
+Index: MP1Node.cpp
+===================================================================
+--- MP1Node.cpp	(revision 753)
++++ MP1Node.cpp	(working copy)
+@@ -388,7 +388,7 @@
+ 
+ 	// get your own id
+     int id = *(int*)(&memberNode->addr.addr);
+-    for ( int i = 0; i < memberNode->memberList.size(); i++ ) {
++    for ( unsigned int i = 0; i < memberNode->memberList.size(); i++ ) {
+     	if ( id != memberNode->memberList.at(i).id && ( par->getcurrtime() - (memberNode->memberList.at(i).timestamp) ) > TREMOVE ) {
+             Address addr_to_delete;
+             decodeToAddress(&addr_to_delete, memberNode->memberList.at(i).id, memberNode->memberList.at(i).port);
+Index: MP2Node.cpp
+===================================================================
+--- MP2Node.cpp	(revision 753)
++++ MP2Node.cpp	(working copy)
+@@ -5,6 +5,8 @@
+  **********************************/
+ #include "MP2Node.h"
+ 
++static int g_transID;
++
+ /**
+  * constructor
+  */
+@@ -278,7 +280,7 @@
+ 		}
+ 		else {
+ 			// go through the ring until pos <= node
+-			for (int i=1; i<ring.size(); i++){
++			for (unsigned int i=1; i<ring.size(); i++){
+ 				Node addr = ring.at(i);
+ 				if (pos <= addr.getHashCode()) {
+ 					addr_vec.emplace_back(addr);
+Index: Params.cpp
+===================================================================
+--- Params.cpp	(revision 753)
++++ Params.cpp	(working copy)
+@@ -48,7 +48,7 @@
+ 	globaltime = 0;
+ 	dropmsg = 0;
+ 	allNodesJoined = 0;
+-	for ( unsigned int i = 0; i < EN_GPSZ; i++ ) {
++	for ( int i = 0; i < EN_GPSZ; i++ ) {
+ 		allNodesJoined += i;
+ 	}
+ 	fclose(fp);
+Index: common.h
+===================================================================
+--- common.h	(revision 753)
++++ common.h	(working copy)
+@@ -5,7 +5,7 @@
+  * Global variable
+  */
+ // Transaction Id
+-static int g_transID = 0;
++//static int g_transID = 0;
+ 
+ // message types, reply is the message from node to coordinator
+ enum MessageType {CREATE, READ, UPDATE, DELETE, REPLY, READREPLY};

@@ -451,7 +451,7 @@ void Application::deleteTest() {
 	 */
 	cout<<endl<<"Deleting "<<testKVPairs.size()/2 <<" valid keys.... ... .. . ."<<endl;
 	map<string, string>::iterator it = testKVPairs.begin();
-	for ( int i = 0; i < testKVPairs.size()/2; i++ ) {
+	for ( unsigned int i = 0; i < testKVPairs.size()/2; i++ ) {
 		it++;
 
 		// Step 1.a. Find a node that is alive
@@ -615,7 +615,7 @@ void Application::readTest() {
 				exit(1);
 			}
 			if ( count == 2 ) {
-				for ( int i = 0; i < nodesToFail.size(); i++ ) {
+				for ( unsigned int i = 0; i < nodesToFail.size(); i++ ) {
 					// Fail a node
 					log->LOG(&mp2[nodesToFail.at(i)]->getMemberNode()->addr, "Node failed at time=%d", par->getcurrtime());
 					mp2[nodesToFail.at(i)]->getMemberNode()->bFailed = true;
@@ -858,7 +858,7 @@ void Application::updateTest() {
 				cout<<endl<<"Not enough replicas to fail two nodes. Exiting test case !! "<<endl;
 			}
 			if ( count == 2 ) {
-				for ( int i = 0; i < nodesToFail.size(); i++ ) {
+				for ( unsigned int i = 0; i < nodesToFail.size(); i++ ) {
 					// Fail a node
 					log->LOG(&mp2[nodesToFail.at(i)]->getMemberNode()->addr, "Node failed at time=%d", par->getcurrtime());
 					mp2[nodesToFail.at(i)]->getMemberNode()->bFailed = true;

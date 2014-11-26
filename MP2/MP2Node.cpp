@@ -5,6 +5,10 @@
  **********************************/
 #include "MP2Node.h"
 
+static const string NO_VALUE;
+static const Message INVALID_MESSAGE(0, Address(), CREATE, "", "");
+static int my_g_transID = 0;
+
 /**
  * constructor
  */
@@ -15,6 +19,9 @@ MP2Node::MP2Node(Member *memberNode, Params *par, EmulNet * emulNet, Log * log, 
 	this->log = log;
 	ht = new HashTable();
 	this->memberNode->addr = *address;
+    myAddr = &this->memberNode->addr;
+    log->LOG(&memberNode->addr, "testing");
+
 }
 
 /**
@@ -76,15 +83,13 @@ void MP2Node::updateRing() {
     if (!ht->isEmpty() && change)
         stabilizationProtocol();
 
-#ifdef DEBUGLOG
     if (change) {
         stringstream ring_ss; 
         ring_ss << "Ring :";
         for(unsigned i = 0; i < ring.size(); i++)
             ring_ss << ring[i].nodeAddress.getAddress() << ", ";
-        log->LOG(&memberNode->addr, ring_ss.str().c_str());
+        log->LOG(myAddr, ring_ss.str().c_str());
     }
-#endif
 }
 
 /**
@@ -136,30 +141,7 @@ size_t MP2Node::hashFunction(string key) {
  * 				3) Sends a message to the replica
  */
 void MP2Node::clientCreate(string key, string value) {
-	/*
-	 * TODO
-	 */
-    g_transID++;
-
-    //Add the new KV to this node
-    ht->create(key, value);
-
-    //Create the replica messages
-    Message create_msg1(g_transID, memberNode->addr, CREATE, key, value, PRIMARY);
-    Message create_msg2(g_transID, memberNode->addr, CREATE, key, value, SECONDARY);
-    Message create_msg3(g_transID, memberNode->addr, CREATE, key, value, TERTIARY);
-
-    //Send the replica messages
-    size_t primary_pos = hashFunction(key);
-    size_t secondary_pos = (primary_pos+1) % RING_SIZE;
-    size_t tertiary_pos = (primary_pos+2) % RING_SIZE;
-
-    emulNet->ENsend(&memberNode->addr, &ring[primary_pos].nodeAddress, 
-                    create_msg1.toString());
-    emulNet->ENsend(&memberNode->addr, &ring[secondary_pos].nodeAddress, 
-                    create_msg2.toString());
-    emulNet->ENsend(&memberNode->addr, &ring[tertiary_pos].nodeAddress, 
-                    create_msg3.toString());
+     clientCRUDHelper(key, value, CREATE);
 }
 
 /**
@@ -172,9 +154,7 @@ void MP2Node::clientCreate(string key, string value) {
  * 				3) Sends a message to the replica
  */
 void MP2Node::clientRead(string key){
-	/*
-	 * TODO
-	 */
+     clientCRUDHelper(key, NO_VALUE, READ);
 }
 
 /**
@@ -187,10 +167,7 @@ void MP2Node::clientRead(string key){
  * 				3) Sends a message to the replica
  */
 void MP2Node::clientUpdate(string key, string value){
-	/*
-	 * TODO
-	 */
-    g_transID++;
+     clientCRUDHelper(key, value, UPDATE);
 }
 
 /**
@@ -203,9 +180,7 @@ void MP2Node::clientUpdate(string key, string value){
  * 				3) Sends a message to the replica
  */
 void MP2Node::clientDelete(string key){
-	/*
-	 * TODO
-	 */
+     clientCRUDHelper(key, NO_VALUE, DELETE);
 }
 
 /**
@@ -218,15 +193,13 @@ void MP2Node::clientDelete(string key){
  */
 bool MP2Node::createKeyValue(string key, string value, ReplicaType replica) {
 
-	/*
-	 * TODO
-	 */
 	// Insert key, value, replicaType into the hash table
-    g_transID++;
-    bool success = ht->create(key, pair(value, replica));
-    if (success)
-        log->logCreateSuccess(&memberNode->addr, false, g_transID, key, 
-                              pair(value, replica));
+    string ht_entry = Entry(value, my_g_transID, replica).convertToString();
+    bool success = ht->create(key, ht_entry);
+
+    if (success) {log->logCreateSuccess(myAddr, false, my_g_transID++, key, ht_entry);}
+    else {log->logCreateFail(myAddr, false, my_g_transID++, key, ht_entry);}
+
     return success;
 }
 
@@ -243,7 +216,7 @@ string MP2Node::readKey(string key) {
 	 * TODO
 	 */
 	// Read key from local hash table and return value
-    g_transID++;
+    my_g_transID++;
 
     return "";
 }
@@ -261,7 +234,7 @@ bool MP2Node::updateKeyValue(string key, string value, ReplicaType replica) {
 	 * TODO
 	 */
 	// Update key in local hash table and return true or false
-    g_transID++;
+    my_g_transID++;
 
     return false;
 }
@@ -275,13 +248,14 @@ bool MP2Node::updateKeyValue(string key, string value, ReplicaType replica) {
  * 				2) Return true or false based on success or failure
  */
 bool MP2Node::deletekey(string key) {
-	/*
-	 * TODO
-	 */
 	// Delete the key from the local hash table
-    g_transID++;
+    my_g_transID++;
+    bool success = ht->deleteKey(key);
 
-    return false;
+    if (success) {log->logDeleteSuccess(myAddr, false, my_g_transID++, key);}
+    else {log->logDeleteFail(myAddr, false, my_g_transID++, key);}
+
+    return success;
 }
 
 /**
@@ -293,38 +267,53 @@ bool MP2Node::deletekey(string key) {
  * 				2) Handles the messages according to message types
  */
 void MP2Node::checkMessages() {
-	/*
-	 * TODO. Parts of it are already implemented
-	 */
 	char * data;
 	int size;
-
-	/*
-	 * Declare your local variables here
-	 */
+    bool success = false;
+    string read_str;
 
 	// dequeue all messages and handle them
 	while ( !memberNode->mp2q.empty() ) {
-		/*
-		 * Pop a message from the queue
-		 */
+
+        //Pop a message from the queue
 		data = (char *)memberNode->mp2q.front().elt;
 		size = memberNode->mp2q.front().size;
 		memberNode->mp2q.pop();
 
 		string msg_str(data, data + size);
         Message msg(msg_str);
-		/*
-		 * Handle the message types here
-		 */
+        //Handle the message types here
         switch(msg.type) {
-        case CREATE: createKeyValue(msg.key, msg.value, msg.replica); break;
-        case UPDATE: break;
-        case READ: break;
-        case DELETE: break;
-        case REPLY: break;
-        case READREPLY: break;
+        case CREATE: 
+            success = createKeyValue(msg.key, msg.value, msg.replica); 
+            break;
+
+        case READ: 
+            read_str = readKey(msg.key); 
+            break;
+
+        case UPDATE: 
+            success = updateKeyValue(msg.key, msg.value, msg.replica); 
+            break;
+
+        case DELETE: 
+            success = deletekey(msg.key); 
+            break;
+
+        case REPLY: 
+            replyReceived(msg.success, msg.transID, msg.fromAddr);            
+            break;
+
+        case READREPLY: //TODO
+            assert(false && "TODO");
+            break;
         }
+        
+        if (success) {
+            Message reply(msg.transID, *myAddr, REPLY, success);
+            dispatchMessage(reply, &msg.fromAddr);
+        }
+
 	}
 
 	/*
@@ -398,20 +387,84 @@ int MP2Node::enqueueWrapper(void *env, char *buff, int size) {
  *				Note:- "CORRECT" replicas implies that every key is replicated in its two neighboring nodes in the ring
  */
 void MP2Node::stabilizationProtocol() {
-	/*
-	 * TODO
-	 */
+    //TODO
 }
 
-string MP2Node::pair(string value, ReplicaType replica) {
-    stringstream ss;
-    switch(replica) {
-    case PRIMARY: ss << "PRIMARY"; break;
-    case SECONDARY: ss << "SECONDARY"; break;
-    case TERTIARY: ss << "TERTIARY"; break;
-    default: ss << "BAD";
+void MP2Node::dispatchMessage(Message message, Address * toAddr) {
+    emulNet->ENsend(myAddr, toAddr, message.toString());
+}
+
+
+void MP2Node::replyReceived(bool success, int transID, Address fromAddr) {
+    if (success) {
+        string key = transID_to_key[transID];
+        transID_to_key.erase(transID);
+
+        // Only increment if the key exists. It may have already reached 
+        // QUORUM and been removed
+        if (replica_replies.count(key)==1) {
+            replica_replies[key] += 1;
+
+            if (replica_replies[key] == QUORUM) {
+                log->logCreateSuccess(myAddr, false, transID, key, "CLIENT");
+                replica_replies.erase(key);
+            }
+        }
     }
-    ss << "::" << value;
-    return ss.str();
+    else {
+        assert(false && "TODO Handle this case");
+    }
 }
 
+void MP2Node::clientCRUDHelper(string key, string value, MessageType type) {
+    //Find the replica nodes
+    vector<Node> replicaNodes = findNodes(key);
+
+    //Send the create messages to the replicas
+    Message create_msg1 = consMessage(my_g_transID++, type, key, value, PRIMARY);
+    dispatchMessage(create_msg1, replicaNodes[0].getAddress());
+
+    Message create_msg2 = consMessage(my_g_transID++, type, key, value, SECONDARY);
+    dispatchMessage(create_msg2, replicaNodes[1].getAddress());
+
+    Message create_msg3 = consMessage(my_g_transID++, type, key, value, TERTIARY);     
+    dispatchMessage(create_msg3, replicaNodes[2].getAddress());   
+
+    //Make this key pending till they are REPLY'd
+    assert(transID_to_key.count(create_msg1.transID)==0 && "transID exists!");
+    assert(transID_to_key.count(create_msg2.transID)==0 && "transID exists!");
+    assert(transID_to_key.count(create_msg3.transID)==0 && "transID exists!");
+
+    // if (replica_replies.count(key)!=0) {
+    //     stringstream warn;
+    //     warn << "WARNING key " << key << " exists! replies:" << replica_replies[key];
+    //     log->LOG(myAddr,  warn.str().c_str());
+    // }
+    
+    assert(replica_replies.count(key)==0 && "Key exists!");
+
+    transID_to_key[create_msg1.transID] = key;
+    transID_to_key[create_msg2.transID] = key;
+    transID_to_key[create_msg3.transID] = key;
+    replica_replies[key] = 0;
+}
+
+Message MP2Node::consMessage(int transID, MessageType type, string key, string value, ReplicaType replica) {
+    //TODO this is really a job for the message class...
+    Message retval = INVALID_MESSAGE;
+    
+    switch(type) {
+    case CREATE:
+    case UPDATE: //Create or update
+        retval = Message(transID, *myAddr, type, key, value, replica);
+        break;
+    case DELETE: 
+    case READ: //Read or delete
+        assert(value==NO_VALUE);
+        retval = Message(transID, *myAddr, type, key);
+        break;
+    default:
+        assert(false && "Unsupported type");
+    }
+    return retval;
+}

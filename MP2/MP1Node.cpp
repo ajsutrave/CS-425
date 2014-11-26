@@ -388,7 +388,7 @@ void MP1Node::deleteTimeOutNodes() {
 
 	// get your own id
     int id = *(int*)(&memberNode->addr.addr);
-    for ( int i = 0; i < memberNode->memberList.size(); i++ ) {
+    for (unsigned int i = 0; i < memberNode->memberList.size(); i++ ) {
     	if ( id != memberNode->memberList.at(i).id && ( par->getcurrtime() - (memberNode->memberList.at(i).timestamp) ) > TREMOVE ) {
             Address addr_to_delete;
             decodeToAddress(&addr_to_delete, memberNode->memberList.at(i).id, memberNode->memberList.at(i).port);

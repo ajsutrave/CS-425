@@ -6,6 +6,7 @@
 
 #ifndef MP2NODE_H_
 #define MP2NODE_H_
+#define QUORUM 2
 
 /**
  * Header files
@@ -50,6 +51,13 @@ private:
 	// Object of Log
 	Log * log;
 
+    //My Address
+    Address * myAddr;
+
+    //Maps a key onto the number of replies
+    map<string, int> replica_replies;
+    map<int, string> transID_to_key;
+
 public:
 	MP2Node(Member *memberNode, Params *par, EmulNet *emulNet, Log *log, Address *addressOfMember);
 	Member * getMemberNode() {
@@ -67,6 +75,8 @@ public:
 	void clientRead(string key);
 	void clientUpdate(string key, string value);
 	void clientDelete(string key);
+    void clientCRUDHelper(string key, string value, MessageType type);
+    Message consMessage(int transID, MessageType type, string key, string value, ReplicaType replica);
 
 	// receive messages from Emulnet
 	bool recvLoop();
@@ -74,9 +84,6 @@ public:
 
 	// handle messages from receiving queue
 	void checkMessages();
-
-	// coordinator dispatches messages to corresponding nodes
-	void dispatchMessages(Message message);
 
 	// find the addresses of nodes that are responsible for a key
 	vector<Node> findNodes(string key);
@@ -86,14 +93,15 @@ public:
 	string readKey(string key);
 	bool updateKeyValue(string key, string value, ReplicaType replica);
 	bool deletekey(string key);
+    void replyReceived(bool success, int transID, Address fromAddr);
 
 	// stabilization protocol - handle multiple failures
 	void stabilizationProtocol();
 
-	~MP2Node();
+	// Dispatch message to corresponding address
+	void dispatchMessage(Message message, Address * toAddr);
 
-    string pair(string value, ReplicaType replica);
-    std::pair<string, ReplicaType> unpair(string value_replica);
+	~MP2Node();
     
 };
 

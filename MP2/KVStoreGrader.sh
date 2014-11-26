@@ -110,6 +110,7 @@ fi
 
 # Display score
 echo "TEST 1 SCORE..................: ${CREATE_TEST_SCORE} / 3"
+echo "Got ${create_success_count}, expected ${expected_count}"
 # Add to grade
 GRADE=$(( ${GRADE} + ${CREATE_TEST_SCORE} ))
 
@@ -161,6 +162,7 @@ delete_success_count=`grep -i "${DELETE_SUCCESS}" dbg.log | wc -l`
 if [ "${delete_success_count}" -ne "${expected_count}" ]
 then
 	DELETE_TEST1_STATUS="${FAILURE}"
+    echo "Got ${delete_success_count}, expected ${expected_count}"
 else 
 	keys=""
 	keys=`grep -i "${DELETE_OPERATION}" dbg.log | cut -d" " -f7`
@@ -172,7 +174,8 @@ else
 			if [ "${key_delete_success_count}" -ne "${RFPLUSONE}" ]
 			then
 				DELETE_TEST1_STATUS="${FAILURE}"
-				break
+                echo "Got ${key_delete_success_count}, expected ${RFPLUSONE}"
+    			break
 			fi
 		fi
 	done
@@ -199,6 +202,7 @@ fi
 # Display score
 echo "TEST 1 SCORE..................: ${DELETE_TEST1_SCORE} / 3"
 echo "TEST 2 SCORE..................: ${DELETE_TEST2_SCORE} / 4"
+
 # Add to grade
 GRADE=$(( ${GRADE} + ${DELETE_TEST1_SCORE} ))
 GRADE=$(( ${GRADE} + ${DELETE_TEST2_SCORE} ))
