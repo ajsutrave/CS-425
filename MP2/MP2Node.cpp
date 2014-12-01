@@ -9,7 +9,7 @@ static const string NO_VALUE;
 static const Message INVALID_MESSAGE(0, Address(), CREATE, "", "");
 static const int QUORUM_SUCCESS = 2;
 static const int QUORUM_FAIL = -2;
-
+static const int TIMEOUT = 10;
 static int my_g_transID = 0;
 
 /**
@@ -232,12 +232,15 @@ string MP2Node::readKey(string key, int transID) {
  * 				1) Update the key to the new value in the local hash table
  * 				2) Return true or false based on success or failure
  */
-bool MP2Node::updateKeyValue(string key, string value, ReplicaType replica) {
-	/*
-	 * TODO
-	 */
+bool MP2Node::updateKeyValue(string key, string value, ReplicaType replica, int transID) {
 	// Update key in local hash table and return true or false
-    return false;
+    string ht_entry = Entry(value, transID, replica).convertToString();
+    bool success = ht->update(key, ht_entry);
+
+    if (success) {log->logUpdateSuccess(myAddr, false, transID, key, value);}
+    else {log->logUpdateFail(myAddr, false, transID, key, value);}
+    
+    return success;
 }
 
 /**
@@ -273,16 +276,36 @@ void MP2Node::checkMessages() {
     string read_str;
 
     auto e = transID_to_timestamp.end();
-    for (auto it = transID_to_timestamp.begin(); it != e; ++it) {
+    for (auto it = transID_to_timestamp.begin(); it != e;) {
         //cout <<  << " " <<  << endl; 
         int transID = it->first;
-        int time_elapsed = par->getcurrtime() - it->second[0];
+        string key = transID_to_key[transID];
+        int time_elapsed = par->getcurrtime() - it->second;
+
         if (time_elapsed > TIMEOUT) {
+            transID_to_timestamp.erase(it++);
+            key = key + " TIMEOUT";
             if (replica_create_replies.count(transID)==1) {
-                log->logCreateFail(myAddr, true, transID, key, "TIMEOUT");
+                replica_create_replies.erase(transID);
+                log->logCreateFail(myAddr, true, transID, key, "COORD_VAL");
             }
-                
-                
+            else if (replica_delete_replies.count(transID)==1) {
+                replica_delete_replies.erase(transID);
+                log->logDeleteFail(myAddr, true, transID, key);
+            }
+            else if (replica_read_replies.count(transID)==1) {
+                replica_read_replies.erase(transID);
+                log->logReadFail(myAddr, true, transID, key);
+            }
+            else if (replica_update_replies.count(transID)==1) {
+                replica_update_replies.erase(transID);
+                log->logUpdateFail(myAddr, true, transID, key, "COORD_VAL");
+            }
+
+        }
+        else {
+            ++it;
+        }
     }
 
 
@@ -307,7 +330,7 @@ void MP2Node::checkMessages() {
             break;
 
         case UPDATE: //TODO
-            success = updateKeyValue(msg.key, msg.value, msg.replica); 
+            success = updateKeyValue(msg.key, msg.value, msg.replica, msg.transID); 
             break;
 
         case DELETE: 
@@ -455,6 +478,26 @@ void MP2Node::replyReceived(bool success, int transID, Address fromAddr) {
         }
     }
 
+    if (replica_update_replies.count(transID)==1) {
+        if (success)
+            replica_update_replies[transID] += 1;
+        else
+            replica_update_replies[transID] -= 1;
+        
+        if (replica_update_replies[transID] == QUORUM_SUCCESS) {
+            log->logUpdateSuccess(myAddr, true, transID, key, "COORD_VAL");
+            replica_update_replies.erase(transID);
+            transID_to_timestamp.erase(transID);
+        }
+
+        else if (replica_update_replies[transID] == QUORUM_FAIL) {
+            log->logUpdateFail(myAddr, true, transID, key, "COORD_VAL");
+            replica_update_replies.erase(transID);
+            transID_to_timestamp.erase(transID);
+        }
+    }
+
+
 }
 
 void MP2Node::readreplyReceived(string value, int transID, Address fromAddr) {
@@ -515,8 +558,8 @@ void MP2Node::clientCRUDHelper(string key, string value, MessageType type) {
     case CREATE: replica_create_replies[my_g_transID] = 0; break;
     case DELETE: replica_delete_replies[my_g_transID] = 0; break;
     case READ: replica_read_replies[my_g_transID] = 0; break;
-    case UPDATE: 
-    default: assert(false && "TODO Not implemented...");
+    case UPDATE: replica_update_replies[my_g_transID] = 0; break;
+    default: assert(false && "Non-CRUD messages not implemented...");
     }
 }
 

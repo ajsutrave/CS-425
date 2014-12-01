@@ -57,10 +57,11 @@ private:
     map<int, int> replica_create_replies;
     map<int, int> replica_delete_replies;
     map<int, int> replica_read_replies;
+    map<int, int> replica_update_replies;
     
     //Maps a trancsaction to a key
     map<int, string> transID_to_key;
-    map<int, string> transID_to_timestamp;
+    map<int, int> transID_to_timestamp;
 
 public:
 	MP2Node(Member *memberNode, Params *par, EmulNet *emulNet, Log *log, Address *addressOfMember);
@@ -94,7 +95,7 @@ public:
 	// server
 	bool createKeyValue(string key, string value, ReplicaType replica, int transID);
 	string readKey(string key, int transID);
-	bool updateKeyValue(string key, string value, ReplicaType replica);
+	bool updateKeyValue(string key, string value, ReplicaType replica, int transID);
 	bool deletekey(string key, int transID);
     void replyReceived(bool success, int transID, Address fromAddr);
     void readreplyReceived(string value, int transID, Address fromAddr);
