@@ -7,6 +7,9 @@
 
 static const string NO_VALUE;
 static const Message INVALID_MESSAGE(0, Address(), CREATE, "", "");
+static const int QUORUM_SUCCESS = 2;
+static const int QUORUM_FAIL = -2;
+
 static int my_g_transID = 0;
 
 /**
@@ -20,8 +23,7 @@ MP2Node::MP2Node(Member *memberNode, Params *par, EmulNet * emulNet, Log * log, 
 	ht = new HashTable();
 	this->memberNode->addr = *address;
     myAddr = &this->memberNode->addr;
-    log->LOG(&memberNode->addr, "testing");
-
+    
 }
 
 /**
@@ -42,9 +44,6 @@ MP2Node::~MP2Node() {
  * 				3) Calls the Stabilization Protocol
  */
 void MP2Node::updateRing() {
-	/*
-	 * TODO. Parts of it are already implemented
-	 */
 	vector<Node> curMemList;
 	bool change = false;
 
@@ -191,14 +190,14 @@ void MP2Node::clientDelete(string key){
  * 			   	1) Inserts key value into the local hash table
  * 			   	2) Return true or false based on success or failure
  */
-bool MP2Node::createKeyValue(string key, string value, ReplicaType replica) {
+bool MP2Node::createKeyValue(string key, string value, ReplicaType replica, int transID) {
 
 	// Insert key, value, replicaType into the hash table
     string ht_entry = Entry(value, my_g_transID, replica).convertToString();
     bool success = ht->create(key, ht_entry);
 
-    if (success) {log->logCreateSuccess(myAddr, false, my_g_transID++, key, ht_entry);}
-    else {log->logCreateFail(myAddr, false, my_g_transID++, key, ht_entry);}
+    if (success) {log->logCreateSuccess(myAddr, false, transID, key, ht_entry);}
+    else {log->logCreateFail(myAddr, false, transID, key, ht_entry);}
 
     return success;
 }
@@ -211,14 +210,18 @@ bool MP2Node::createKeyValue(string key, string value, ReplicaType replica) {
  * 			    1) Read key from local hash table
  * 			    2) Return value
  */
-string MP2Node::readKey(string key) {
-	/*
-	 * TODO
-	 */
-	// Read key from local hash table and return value
-    my_g_transID++;
-
-    return "";
+string MP2Node::readKey(string key, int transID) {
+    string retval;
+    if (ht->count(key)==1) {
+        retval = ht->read(key);
+        log->logReadSuccess(myAddr, false, transID, key, retval);
+    }
+    else {
+        retval = "KEY_NOT_FOUND";
+        log->logReadFail(myAddr, false, transID, key);
+    }
+    
+    return retval;
 }
 
 /**
@@ -234,8 +237,6 @@ bool MP2Node::updateKeyValue(string key, string value, ReplicaType replica) {
 	 * TODO
 	 */
 	// Update key in local hash table and return true or false
-    my_g_transID++;
-
     return false;
 }
 
@@ -247,13 +248,12 @@ bool MP2Node::updateKeyValue(string key, string value, ReplicaType replica) {
  * 				1) Delete the key from the local hash table
  * 				2) Return true or false based on success or failure
  */
-bool MP2Node::deletekey(string key) {
+bool MP2Node::deletekey(string key, int transID) {
 	// Delete the key from the local hash table
-    my_g_transID++;
     bool success = ht->deleteKey(key);
 
-    if (success) {log->logDeleteSuccess(myAddr, false, my_g_transID++, key);}
-    else {log->logDeleteFail(myAddr, false, my_g_transID++, key);}
+    if (success) {log->logDeleteSuccess(myAddr, false, transID, key);}
+    else {log->logDeleteFail(myAddr, false, transID, key);}
 
     return success;
 }
@@ -272,6 +272,20 @@ void MP2Node::checkMessages() {
     bool success = false;
     string read_str;
 
+    auto e = transID_to_timestamp.end();
+    for (auto it = transID_to_timestamp.begin(); it != e; ++it) {
+        //cout <<  << " " <<  << endl; 
+        int transID = it->first;
+        int time_elapsed = par->getcurrtime() - it->second[0];
+        if (time_elapsed > TIMEOUT) {
+            if (replica_create_replies.count(transID)==1) {
+                log->logCreateFail(myAddr, true, transID, key, "TIMEOUT");
+            }
+                
+                
+    }
+
+
 	// dequeue all messages and handle them
 	while ( !memberNode->mp2q.empty() ) {
 
@@ -285,41 +299,41 @@ void MP2Node::checkMessages() {
         //Handle the message types here
         switch(msg.type) {
         case CREATE: 
-            success = createKeyValue(msg.key, msg.value, msg.replica); 
+            success = createKeyValue(msg.key, msg.value, msg.replica, msg.transID); 
             break;
 
         case READ: 
-            read_str = readKey(msg.key); 
+            read_str = readKey(msg.key, msg.transID); 
             break;
 
-        case UPDATE: 
+        case UPDATE: //TODO
             success = updateKeyValue(msg.key, msg.value, msg.replica); 
             break;
 
         case DELETE: 
-            success = deletekey(msg.key); 
+            success = deletekey(msg.key, msg.transID); 
             break;
 
         case REPLY: 
             replyReceived(msg.success, msg.transID, msg.fromAddr);            
             break;
 
-        case READREPLY: //TODO
-            assert(false && "TODO");
+        case READREPLY: 
+            readreplyReceived(msg.value, msg.transID, msg.fromAddr);
             break;
         }
-        
-        if (success) {
+
+        if (msg.type==CREATE || msg.type==DELETE || msg.type==UPDATE) {
             Message reply(msg.transID, *myAddr, REPLY, success);
             dispatchMessage(reply, &msg.fromAddr);
+        }
+        else if (msg.type==READ) {
+            Message readreply(msg.transID, *myAddr, read_str);
+            dispatchMessage(readreply, &msg.fromAddr);
         }
 
 	}
 
-	/*
-	 * This function should also ensure all READ and UPDATE operation
-	 * get QUORUM replies
-	 */
 }
 
 /**
@@ -383,7 +397,7 @@ int MP2Node::enqueueWrapper(void *env, char *buff, int size) {
  * DESCRIPTION: This runs the stabilization protocol in case of Node joins and leaves
  * 				It ensures that there always 3 copies of all keys in the DHT at all times
  * 				The function does the following:
- *				1) Ensures that there are three "CORRECT" replicas of all the keys in spite of failures and joins
+o *				1) Ensures that there are three "CORRECT" replicas of all the keys in spite of failures and joins
  *				Note:- "CORRECT" replicas implies that every key is replicated in its two neighboring nodes in the ring
  */
 void MP2Node::stabilizationProtocol() {
@@ -395,58 +409,115 @@ void MP2Node::dispatchMessage(Message message, Address * toAddr) {
 }
 
 
+// The [read]replyReceived function ensures all READ and UPDATE operation
+// get QUORUM replies
 void MP2Node::replyReceived(bool success, int transID, Address fromAddr) {
-    if (success) {
-        string key = transID_to_key[transID];
-        transID_to_key.erase(transID);
+    assert(transID_to_key.count(transID)==1 && "No key for this transaction!");
+    string key = transID_to_key[transID];
 
-        // Only increment if the key exists. It may have already reached 
-        // QUORUM and been removed
-        if (replica_replies.count(key)==1) {
-            replica_replies[key] += 1;
+    // Only increment if the transaction exists. It may have already reached 
+    // QUORUM and been removed
+    if (replica_create_replies.count(transID)==1) {
+        if (success)
+            replica_create_replies[transID] += 1;
+        else
+            replica_create_replies[transID] -= 1;
+        
+        if (replica_create_replies[transID] == QUORUM_SUCCESS) {
+            log->logCreateSuccess(myAddr, true, transID, key, "COORD_VAL");
+            replica_create_replies.erase(transID);
+            transID_to_timestamp.erase(transID);
+        }
 
-            if (replica_replies[key] == QUORUM) {
-                log->logCreateSuccess(myAddr, false, transID, key, "CLIENT");
-                replica_replies.erase(key);
-            }
+        else if (replica_create_replies[transID] == QUORUM_FAIL) {
+            log->logCreateFail(myAddr, true, transID, key, "COORD_VAL");
+            replica_create_replies.erase(transID);
+            transID_to_timestamp.erase(transID);
         }
     }
-    else {
-        assert(false && "TODO Handle this case");
+
+    else if (replica_delete_replies.count(transID)==1) {
+        if (success)
+            replica_delete_replies[transID] += 1;
+        else
+            replica_delete_replies[transID] -= 1;
+        
+        if (replica_delete_replies[transID] == QUORUM_SUCCESS) {
+            log->logDeleteSuccess(myAddr, true, transID, key);
+            replica_delete_replies.erase(transID);
+            transID_to_timestamp.erase(transID);
+        }
+
+        else if (replica_delete_replies[transID] == QUORUM_FAIL) {
+            log->logDeleteFail(myAddr, true, transID, key);
+            replica_delete_replies.erase(transID);
+            transID_to_timestamp.erase(transID);
+        }
     }
+
 }
 
+void MP2Node::readreplyReceived(string value, int transID, Address fromAddr) {
+    assert(transID_to_key.count(transID)==1 && "No key for this transaction!");
+    string key = transID_to_key[transID];
+    
+    if (replica_read_replies.count(transID)==1) {
+
+        if (value == "KEY_NOT_FOUND")
+            replica_read_replies[transID] -= 1;
+        else
+            replica_read_replies[transID] += 1;
+        
+        if (replica_read_replies[transID] == QUORUM_SUCCESS) {
+            log->logReadSuccess(myAddr, true, transID, key, value);
+            replica_read_replies.erase(transID);
+            transID_to_timestamp.erase(transID);
+        }
+
+        else if (replica_read_replies[transID] == QUORUM_FAIL) {
+            log->logReadFail(myAddr, true, transID, key);
+            replica_read_replies.erase(transID);
+            transID_to_timestamp.erase(transID);
+        }
+    }
+    
+}
+
+
 void MP2Node::clientCRUDHelper(string key, string value, MessageType type) {
+    //New transaction
+    my_g_transID++;
+
     //Find the replica nodes
     vector<Node> replicaNodes = findNodes(key);
 
     //Send the create messages to the replicas
-    Message create_msg1 = consMessage(my_g_transID++, type, key, value, PRIMARY);
+    Message create_msg1 = consMessage(my_g_transID, type, key, value, PRIMARY);
     dispatchMessage(create_msg1, replicaNodes[0].getAddress());
 
-    Message create_msg2 = consMessage(my_g_transID++, type, key, value, SECONDARY);
+    Message create_msg2 = consMessage(my_g_transID, type, key, value, SECONDARY);
     dispatchMessage(create_msg2, replicaNodes[1].getAddress());
 
-    Message create_msg3 = consMessage(my_g_transID++, type, key, value, TERTIARY);     
+    Message create_msg3 = consMessage(my_g_transID, type, key, value, TERTIARY);     
     dispatchMessage(create_msg3, replicaNodes[2].getAddress());   
 
-    //Make this key pending till they are REPLY'd
-    assert(transID_to_key.count(create_msg1.transID)==0 && "transID exists!");
-    assert(transID_to_key.count(create_msg2.transID)==0 && "transID exists!");
-    assert(transID_to_key.count(create_msg3.transID)==0 && "transID exists!");
+    //Sanity check
+    assert(replica_create_replies.count(my_g_transID)==0 && "Key is being created!");
+    assert(replica_delete_replies.count(my_g_transID)==0 && "Key is being deleted!");
+    assert(replica_read_replies.count(my_g_transID)==0 && "Key is being read!");
+    assert(transID_to_key.count(my_g_transID)==0 && "transID associated with key!");
+    assert(transID_to_timestamp.count(my_g_transID)==0 && "transID associated with timestamp!");
 
-    // if (replica_replies.count(key)!=0) {
-    //     stringstream warn;
-    //     warn << "WARNING key " << key << " exists! replies:" << replica_replies[key];
-    //     log->LOG(myAddr,  warn.str().c_str());
-    // }
-    
-    assert(replica_replies.count(key)==0 && "Key exists!");
-
-    transID_to_key[create_msg1.transID] = key;
-    transID_to_key[create_msg2.transID] = key;
-    transID_to_key[create_msg3.transID] = key;
-    replica_replies[key] = 0;
+    //Make this key pending till REPLY'd
+    transID_to_key[my_g_transID] = key;
+    transID_to_timestamp[my_g_transID] = par->getcurrtime();
+    switch(type) {
+    case CREATE: replica_create_replies[my_g_transID] = 0; break;
+    case DELETE: replica_delete_replies[my_g_transID] = 0; break;
+    case READ: replica_read_replies[my_g_transID] = 0; break;
+    case UPDATE: 
+    default: assert(false && "TODO Not implemented...");
+    }
 }
 
 Message MP2Node::consMessage(int transID, MessageType type, string key, string value, ReplicaType replica) {

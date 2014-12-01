@@ -6,7 +6,6 @@
 
 #ifndef MP2NODE_H_
 #define MP2NODE_H_
-#define QUORUM 2
 
 /**
  * Header files
@@ -54,15 +53,19 @@ private:
     //My Address
     Address * myAddr;
 
-    //Maps a key onto the number of replies
-    map<string, int> replica_replies;
+    //Maps a transaction onto the number of replies
+    map<int, int> replica_create_replies;
+    map<int, int> replica_delete_replies;
+    map<int, int> replica_read_replies;
+    
+    //Maps a trancsaction to a key
     map<int, string> transID_to_key;
+    map<int, string> transID_to_timestamp;
 
 public:
 	MP2Node(Member *memberNode, Params *par, EmulNet *emulNet, Log *log, Address *addressOfMember);
-	Member * getMemberNode() {
-		return this->memberNode;
-	}
+
+	Member * getMemberNode() {return this->memberNode;}
 
 	// ring functionalities
 	void updateRing();
@@ -89,11 +92,12 @@ public:
 	vector<Node> findNodes(string key);
 
 	// server
-	bool createKeyValue(string key, string value, ReplicaType replica);
-	string readKey(string key);
+	bool createKeyValue(string key, string value, ReplicaType replica, int transID);
+	string readKey(string key, int transID);
 	bool updateKeyValue(string key, string value, ReplicaType replica);
-	bool deletekey(string key);
+	bool deletekey(string key, int transID);
     void replyReceived(bool success, int transID, Address fromAddr);
+    void readreplyReceived(string value, int transID, Address fromAddr);
 
 	// stabilization protocol - handle multiple failures
 	void stabilizationProtocol();
@@ -101,8 +105,7 @@ public:
 	// Dispatch message to corresponding address
 	void dispatchMessage(Message message, Address * toAddr);
 
-	~MP2Node();
-    
+	~MP2Node();    
 };
 
 #endif /* MP2NODE_H_ */
